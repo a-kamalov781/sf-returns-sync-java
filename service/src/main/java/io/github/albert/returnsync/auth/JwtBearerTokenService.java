@@ -44,6 +44,8 @@ public class JwtBearerTokenService {
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10)).build();
 
+    /** Private lock, not {@code this}: callers (and mocking frameworks) can't hold the service's monitor. */
+    private final Object lock = new Object();
     private volatile SalesforceToken cached;
     private volatile PrivateKey privateKey;   // read lazily, so tests can start the context without a key file
 
@@ -56,7 +58,7 @@ public class JwtBearerTokenService {
     public SalesforceToken get() {
         SalesforceToken t = cached;
         if (t != null) return t;
-        synchronized (this) {
+        synchronized (lock) {
             if (cached == null) cached = requestToken();
             return cached;
         }
@@ -68,8 +70,10 @@ public class JwtBearerTokenService {
     }
 
     /** Drop the token only if it is still the one that got a 401 (don't drop a fresh one another thread got). */
-    public synchronized void invalidate(SalesforceToken stale) {
-        if (stale != null && cached == stale) cached = null;
+    public void invalidate(SalesforceToken stale) {
+        synchronized (lock) {
+            if (stale != null && cached == stale) cached = null;
+        }
     }
 
     private SalesforceToken requestToken() {
