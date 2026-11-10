@@ -100,12 +100,23 @@ jobs:
         run: npm install --global @salesforce/cli
       - name: Authorize Developer Edition via JWT (External Client App)
         if: env.SF_CLIENT_ID != ''
+        env:
+          # via env, not ${{ }} inside the script: no shell injection, multi-line value kept intact
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
+          SF_USERNAME: ${{ secrets.SF_USERNAME }}
         run: |
-          echo "${{ secrets.SF_JWT_KEY }}" > server.key
+          printf '%s\n' "$SF_JWT_KEY" | tr -d '\r' > server.key
+          # Diagnostics without revealing the key: PEM header line, line count, and whether OpenSSL can parse it.
+          echo "key header: $(head -1 server.key | cut -c1-40)   lines: $(wc -l < server.key)"
+          if ! openssl pkey -in server.key -noout 2>/dev/null; then
+            echo "::error::SF_JWT_KEY is not a readable private key. Paste the whole secrets/sf_jwt_key.pem, BEGIN/END lines included."
+            rm -f server.key
+            exit 1
+          fi
           sf org login jwt \
-            --client-id "${{ secrets.SF_CLIENT_ID }}" \
+            --client-id "$SF_CLIENT_ID" \
             --jwt-key-file server.key \
-            --username "${{ secrets.SF_USERNAME }}" \
+            --username "$SF_USERNAME" \
             --instance-url https://login.salesforce.com \
             --alias ci
           rm server.key

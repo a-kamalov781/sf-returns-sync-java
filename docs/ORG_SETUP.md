@@ -109,23 +109,55 @@ Only `server.crt` (public) goes to Salesforce. `sf_jwt_key.pem` never leaves you
 
 The service should not log in as the admin. Two options:
 
-**A. Integration user (recommended, least privilege).** A Developer Edition includes free *Salesforce
-Integration* user licences.
+**A. Integration user (recommended, least privilege).** A Developer Edition includes one free *Salesforce
+Integration* user licence (checked in the live org: user licence `Salesforce Integration`, 1 total / 0 used;
+permission set licence `Salesforce API Integration` (`SalesforceAPIIntegrationPsl`), 1 / 0; profile
+`Minimum Access - API Only Integrations`). Everything except the user itself is already in this repo and
+deployed: the `Return_Sync_Integration` permission set, and the External Client App policy that pre-authorizes
+it (step 5). Creating the user is the one step you do by hand.
 
-1. Setup → Users → New User. User License: **Salesforce Integration**. Profile: **Minimum Access - API Only
-   Integrations**. Use a unique username, e.g. `returns-integration@<something-unique>.dev`. The user needs no
-   password: JWT Bearer doesn't use one.
-2. On the user: Permission Set License Assignments → add **Salesforce API Integration**.
-3. Assign the project permission set:
+1. **Create the user.** Setup → Quick Find `Users` → **Users** → **New User**:
+   - First Name `Returns`, Last Name `Integration`, Email: yours (notifications only).
+   - Username: unique across all of Salesforce, email-shaped, e.g. `returns-integration@<your-org-prefix>.dev`.
+   - User License **Salesforce Integration**, Profile **Minimum Access - API Only Integrations**.
+   - Untick *Generate new password and notify user immediately* (JWT Bearer needs no password) → **Save**.
+2. **Permission set licence.** On the new user's page → *Permission Set License Assignments* → **Edit
+   Assignments** → tick **Salesforce API Integration** → **Save**. Or from the CLI:
 
 ```bash
-sf org assign permset --target-org returns-dev --name Return_Sync_Integration --on-behalf-of returns-integration@<something-unique>.dev
+sf org assign permsetlicense --target-org returns-dev --name SalesforceAPIIntegrationPsl --on-behalf-of <integration-username>
 ```
 
-If the assignment is refused because of the `ApiEnabled` user permission (API-only users already have API
-access), remove the `<userPermissions>` block from
-`salesforce/force-app/main/default/permissionsets/Return_Sync_Integration.permissionset-meta.xml`, deploy
-again, assign again, and note it in an issue so the repo gets fixed.
+3. **Project permission set** (read/edit `Return_Request__c`, edit `Status__c`, read `Return_Requested__e`):
+
+```bash
+sf org assign permset --target-org returns-dev --name Return_Sync_Integration --on-behalf-of <integration-username>
+```
+
+   If the assignment is refused because of the `ApiEnabled` user permission (API-only users already have API
+   access), remove the `<userPermissions>` block from
+   `salesforce/force-app/main/default/permissionsets/Return_Sync_Integration.permissionset-meta.xml`, deploy
+   again, assign again, and open an issue so the repo gets fixed.
+4. **External Client App.** Nothing to do if step 5 is already done: its policy pre-authorizes everyone with the
+   `Return_Sync_Integration` permission set, which now includes this user.
+5. **Switch the service.** In `.env` set `SF_USERNAME=<integration-username>` (keep `SF_CLIENT_ID`).
+6. **Check JWT for the new user** (a separate alias, so the admin's CLI login stays):
+
+```bash
+set -a; . ./.env; set +a
+sf org login jwt --client-id "$SF_CLIENT_ID" --jwt-key-file secrets/sf_jwt_key.pem --username "$SF_USERNAME" --instance-url "$SF_LOGIN_URL" --alias returns-int
+sf org display --target-org returns-int
+```
+
+   Expected `Connected`. Then restart the service and repeat checklist 8.2: the status update must now show the
+   integration user as *Last Modified By* on the record:
+
+```bash
+sf data query --target-org returns-dev --query "SELECT Name, Status__c, LastModifiedBy.Username FROM Return_Request__c ORDER BY LastModifiedDate DESC LIMIT 3"
+```
+
+7. Optional, once A works: remove the **System Administrator** profile from the External Client App policies
+   (step 5.2) if CI doesn't need it — CI deploys as the admin, so keep it while the `apex` job is used.
 
 **B. Quick start with the admin user.** Skip this step and use the admin username as `SF_USERNAME`. It works,
 but a reviewer will ask why the integration runs as an admin; switch to A before showing the project.
