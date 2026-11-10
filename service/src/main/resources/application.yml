@@ -1,0 +1,27 @@
+spring:
+  main:
+    web-application-type: none          # no HTTP server: no Tomcat, less memory
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/returns}
+    username: ${DB_USER:returns}
+    password: ${DB_PASSWORD:returns}
+    hikari:
+      maximum-pool-size: 3              # one worker thread: a big pool is not needed
+  lifecycle:
+    timeout-per-shutdown-phase: 20s     # graceful shutdown
+
+salesforce:
+  login-url: ${SF_LOGIN_URL:https://login.salesforce.com}
+  audience: ${SF_AUDIENCE:https://login.salesforce.com}
+  client-id: ${SF_CLIENT_ID}
+  username: ${SF_USERNAME}
+  private-key-path: ${SF_PRIVATE_KEY_PATH:/run/secrets/sf_jwt_key.pem}
+  api-version: "68.0"
+  pubsub-host: api.pubsub.salesforce.com
+  pubsub-port: 7443
+  topic: /event/Return_Requested__e
+  batch-size: 25                        # <= 100 (num_requested limit)
+
+returns:
+  retry:
+    initial-backoff: 500ms

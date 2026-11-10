@@ -1,0 +1,26 @@
+# secrets: never in git
+.env
+secrets/
+*.key
+*.pem
+*.crt
+*.p12
+*.jks
+
+# build
+service/target/
+target/
+
+# Salesforce CLI local state
+.sf/
+.sfdx/
+salesforce/.sf/
+salesforce/.sfdx/
+.localdevserver/
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db

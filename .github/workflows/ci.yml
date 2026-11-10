@@ -1,0 +1,112 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  service:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: service
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      - name: Build, unit + integration tests (Testcontainers uses the runner's Docker)
+        run: ./mvnw -B verify
+      - name: protoc must match protobuf-java
+        run: ./mvnw -B -q dependency:tree -Dincludes=com.google.protobuf:protobuf-java -DoutputFile=/dev/stdout
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: test-reports
+          path: |
+            service/target/surefire-reports/
+            service/target/failsafe-reports/
+
+  docker-smoke:
+    # Builds the image and starts the compose stack WITHOUT a Salesforce org: login and Pub/Sub point
+    # at a closed local port, so the service stays up in its reconnect loop. Proves the Dockerfile,
+    # compose file, Flyway migration and Spring context; the memory figure is idle, not under load.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Throwaway config and key (never a real one)
+        run: |
+          cp .env.example .env
+          cat >> .env <<'EOF'
+          SF_LOGIN_URL=http://127.0.0.1:9
+          SALESFORCE_PUBSUBHOST=127.0.0.1
+          SALESFORCE_PUBSUBPORT=9
+          EOF
+          mkdir -p secrets
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out secrets/sf_jwt_key.pem
+          chmod 644 secrets/sf_jwt_key.pem
+      - name: Start stack
+        run: docker compose up -d --build
+      - name: Let it run for 90 s
+        run: sleep 90
+      - name: Status, memory, logs
+        run: |
+          docker compose ps
+          docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}'
+          docker inspect --format 'restarts={{.RestartCount}} oomkilled={{.State.OOMKilled}} running={{.State.Running}}' "$(docker compose ps -q service)"
+          docker compose logs service | tail -40
+      - name: Assert service is up, migrated, not OOM-killed
+        run: |
+          id="$(docker compose ps -q service)"
+          test "$(docker inspect --format '{{.State.Running}}' "$id")" = true
+          test "$(docker inspect --format '{{.State.OOMKilled}}' "$id")" = false
+          test "$(docker inspect --format '{{.RestartCount}}' "$id")" = 0
+          docker compose logs service | grep -q 'Successfully applied 1 migration'
+          docker compose logs service | grep -q 'Reconnecting in'
+      - name: Graceful stop
+        if: always()
+        run: |
+          docker compose stop -t 30 service
+          docker compose logs service | tail -5
+          docker compose down -v
+
+  apex:
+    # Secrets are not available to PRs from forks, and a fork has no org: validate on main only.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
+    defaults:
+      run:
+        working-directory: salesforce
+    steps:
+      - uses: actions/checkout@v7
+      - name: Skip without org secrets
+        if: env.SF_CLIENT_ID == ''
+        run: echo "::notice::SF_CLIENT_ID / SF_USERNAME / SF_JWT_KEY secrets not set - Apex validation skipped"
+      - uses: actions/setup-node@v7
+        if: env.SF_CLIENT_ID != ''
+        with:
+          node-version: '22'
+      - if: env.SF_CLIENT_ID != ''
+        run: npm install --global @salesforce/cli
+      - name: Authorize Developer Edition via JWT (External Client App)
+        if: env.SF_CLIENT_ID != ''
+        run: |
+          echo "${{ secrets.SF_JWT_KEY }}" > server.key
+          sf org login jwt \
+            --client-id "${{ secrets.SF_CLIENT_ID }}" \
+            --jwt-key-file server.key \
+            --username "${{ secrets.SF_USERNAME }}" \
+            --instance-url https://login.salesforce.com \
+            --alias ci
+          rm server.key
+      - name: Validate deploy with local Apex tests (changes nothing in the org)
+        if: env.SF_CLIENT_ID != ''
+        run: sf project deploy validate --source-dir force-app --test-level RunLocalTests --target-org ci

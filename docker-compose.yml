@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: returns
+      POSTGRES_USER: returns
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-returns}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U returns -d returns"]
+      interval: 5s
+      retries: 10
+    mem_limit: 256m
+    restart: unless-stopped
+
+  service:
+    build: ./service
+    env_file: .env
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/returns
+      SF_PRIVATE_KEY_PATH: /run/secrets/sf_jwt_key.pem
+    volumes:
+      - ./secrets/sf_jwt_key.pem:/run/secrets/sf_jwt_key.pem:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    mem_limit: 384m
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
