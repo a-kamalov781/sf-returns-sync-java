@@ -225,8 +225,13 @@ Tests: `cd service && ./mvnw verify` (Testcontainers integration tests need Dock
 
 Verified:
 
-- `mvn verify` passes locally on JDK 25.0.5 (Temurin) + Maven 3.9.16 — 32 unit/in-process tests; the 4
-  Testcontainers tests are skipped on a machine without Docker and run in CI.
+- `mvn verify` passes locally on JDK 25.0.5 (Temurin) + Maven 3.9.16 (33 unit/in-process tests; the 4
+  Testcontainers tests are skipped on a machine without Docker) and in GitHub Actions, where all 4
+  Testcontainers tests run against PostgreSQL 17 and pass.
+- The Docker image builds and the compose stack starts in CI: Flyway migrates, the full Spring context comes up
+  with the production config, the service stays up in its reconnect loop under the 384 MB limit without
+  restarts or OOM kill, and stops gracefully. The smoke run found a real bug (jitter was added after the 60 s
+  backoff cap, giving a 74.7 s delay); fixed and covered by a test.
 - First-build checks from the plan:
   - `protoc` = `protobuf-java` = **3.25.9**: `mvn dependency:tree` shows `grpc-protobuf 1.85.1 → protobuf-java 3.25.9`
     (the plan had 3.25.8, which would not match). The version is also pinned in `dependencyManagement`.
@@ -246,7 +251,8 @@ Verified:
 - **No run against a live Developer Edition org**: the JWT login, `tenantid`, the real Avro schema of
   `Return_Requested__e`, `updateOnly` upsert and the SFDX deploy were checked against documentation and fakes only.
 - **Apex has not been compiled or run** (no org in this environment). CI validates it once the org secrets exist.
-- **Memory under real load is not measured.** Estimate: 150–250 MB RSS.
+- **Memory under real load is not measured.** Only the idle figure from CI exists (150 MiB, see below);
+  the number after an hour with a live org still has to be filled in.
 - Spring Boot support dates (4.0.x OSS until 2026-12-31, 4.1.x until 2027-07-31) come from a third-party review
   (AceMQ, compared with spring.io on 2026-10-22), not from spring.io directly.
 
@@ -254,7 +260,8 @@ Verified:
 
 | Metric | Value | How |
 |---|---|---|
-| Memory, idle, no org (reconnect loop) | see the CI `docker-smoke` job log | `docker stats --no-stream` after 90 s |
+| Memory, idle, no org (reconnect loop) | **150.2 MiB / 384 MiB (39%)**; Postgres 35.9 MiB / 256 MiB | CI `docker-smoke`, `docker stats --no-stream` after 90 s, GitHub `ubuntu-latest`, 2026-11-10 |
+| Graceful stop (`docker compose stop`) | 0.4 s | same CI run |
 | Memory after 1 h with a live org | ___ MB | `docker stats` — *fill in after a real run* |
 | End-to-end latency (record insert → status) | ___ ms | *fill in after a real run* |
 

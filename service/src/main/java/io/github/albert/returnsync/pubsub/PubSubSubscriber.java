@@ -213,14 +213,22 @@ public class PubSubSubscriber implements SmartLifecycle {
     private void reconnectLater() {
         if (!running) return;
         generation++;                                         // the old stream is not listened to anymore
-        long delayMs = Math.min(60_000, baseReconnectDelayMs << Math.min(attempt++, 6));
-        delayMs += ThreadLocalRandom.current().nextLong(delayMs / 4 + 1);   // jitter
+        long delayMs = reconnectDelayMs(baseReconnectDelayMs, attempt++);
         log.info("Reconnecting in {} ms", delayMs);
         try {
             worker.schedule(this::subscribe, delayMs, TimeUnit.MILLISECONDS);
         } catch (RejectedExecutionException e) {
             log.debug("Worker stopped, not reconnecting");
         }
+    }
+
+    static final long MAX_RECONNECT_DELAY_MS = 60_000;
+
+    /** Exponential backoff (base * 2^attempt, exponent capped at 6) + up to 25% jitter, never above 60 s. */
+    static long reconnectDelayMs(long baseMs, int attempt) {
+        long delay = baseMs << Math.min(attempt, 6);
+        delay += ThreadLocalRandom.current().nextLong(delay / 4 + 1);   // jitter: reconnects don't sync up
+        return Math.min(MAX_RECONNECT_DELAY_MS, delay);                 // cap after jitter
     }
 
     private void cancelStream(String reason) {

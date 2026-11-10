@@ -243,6 +243,16 @@ class PubSubSubscriberTest {
         assertThat(fake.subscribeCalls).isEqualTo(2);
     }
 
+    @Test
+    void reconnectDelayGrowsAndNeverExceeds60Seconds() {
+        assertThat(PubSubSubscriber.reconnectDelayMs(1_000, 0)).isBetween(1_000L, 1_250L);
+        assertThat(PubSubSubscriber.reconnectDelayMs(1_000, 3)).isBetween(8_000L, 10_000L);
+        for (int attempt = 0; attempt < 50; attempt++) {
+            assertThat(PubSubSubscriber.reconnectDelayMs(1_000, attempt))
+                    .isLessThanOrEqualTo(PubSubSubscriber.MAX_RECONNECT_DELAY_MS);
+        }
+    }
+
     // --- helpers ---
 
     private FetchRequest nextRequest() throws InterruptedException {
