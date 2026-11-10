@@ -7,9 +7,11 @@ Salesforce with a **REST upsert by External ID** (`updateOnly=true`).
 It is a portfolio project. The goal is to show the same job a MuleSoft Salesforce Pub/Sub Connector flow does,
 written by hand, small enough to explain line by line in an interview.
 
-> **Status — read this first.** The service builds and all tests pass (`mvn verify`, CI). The Salesforce part is
-> deployed to a live Developer Edition and its Apex tests pass there. The **Java service has not run against a
-> live org** yet, and memory under real load is **not measured** yet.
+> **Status — read this first.** The service builds and all tests pass (`mvn verify`, CI). On 2026-11-10/11 it ran
+> **end to end against a live Developer Edition**: JWT login, Pub/Sub subscription, real Avro events, REST upsert,
+> restart from the stored replay ID, corrupted replay ID → EARLIEST with duplicates dropped, a 404 dead letter.
+> Still open: memory under **sustained load** (one-hour `docker stats` run), and an integration user instead of
+> the admin.
 > See [What is verified and what is not](#what-is-verified-and-what-is-not) and [Next steps](#next-steps).
 > Setting up an org step by step: [docs/ORG_SETUP.md](docs/ORG_SETUP.md).
 
@@ -253,6 +255,21 @@ Verified:
   org-wide 91%. A record created with `sf data create record` gets a UUID `External_Id__c` and `Status__c = New`.
   `scripts/load-test.apex` and `scripts/load-test-cleanup.apex` compile and run. `sf limits api display` shows the
   Developer Edition limits used below (15,000 API requests, 10,000 deliveries, 50,000 publishes/h, 5 MB data).
+- **Java service against the live org** (2026-11-11, service run with `java -jar` + local PostgreSQL 17.11,
+  same JVM flags as the image; no Docker on that machine):
+  - JWT Bearer login through the External Client App (own ~30-line client) and `tenantid` from the token's `id` URL work;
+  - `Subscribed ... with preset LATEST`; two records created → `ORD-100` (120) `Approved`, `ORD-101` (900)
+    `Manual_Review`, about 1–3 s from insert to status (Salesforce `CreatedDate` has 1 s resolution);
+  - the real Avro schema of `Return_Requested__e` decodes with `ReturnEvent.from`; `updateOnly=true` upsert works;
+  - the replay ID Salesforce sends is **29 bytes and not a number** (it contains an ASCII cluster name) — the
+    reason it is stored as `BYTEA` and never converted;
+  - service killed (no graceful stop), two records created while it was down, restarted → `preset CUSTOM`, both
+    processed, `processed_returns` rows = distinct IDs;
+  - replay ID overwritten with `\x00` → server answers `INVALID_ARGUMENT`,
+    `error-code=sfdc.platform.eventbus.grpc.subscription.fetch.replayid.corrupted` → resubscribe with `EARLIEST`
+    → already processed events logged as `Duplicate ..., skipping`, nothing processed twice;
+  - the same EARLIEST replay delivered an event for a record deleted earlier → REST `404 NOT_FOUND` → one row in
+    `dead_letters`, the stream went on.
 - The first live deploy found a real problem: deployed custom fields get no field-level security on profiles, so the
   tests failed with `DmlException: fields being inaccessible` and even the admin couldn't write the fields. Fixed by
   the `Return_Request_Manager` permission set and tests that `System.runAs` a user who has it.
@@ -262,11 +279,14 @@ Verified:
 
 **Not verified yet:**
 
-- **The Java service has not run against a live org**: the JWT login, `tenantid`, the real Avro schema of
-  `Return_Requested__e` and the `updateOnly` upsert were checked against documentation and fakes only.
+- **Memory under sustained load is not measured.** Data points so far: 150 MiB idle in the CI container
+  (`docker stats`), 233 MiB working set (peak 292 MiB) on Windows during the live run — the Windows figure counts
+  shared mapped files and is not comparable to `docker stats`. The one-hour `docker stats` number is still to be
+  filled in ([LOAD_TEST.md](docs/LOAD_TEST.md)).
+- The live run used the **admin** as the integration user (pre-authorized through the System Administrator
+  profile); the least-privilege integration user (ORG_SETUP §4) is not set up yet.
+- Graceful shutdown was checked in the CI container (0.4 s), not in the live run (Windows had no SIGTERM).
 - The `apex` CI job is still skipped (no org secrets in the repository yet).
-- **Memory under real load is not measured.** Only the idle figure from CI exists (150 MiB, see below);
-  the number after an hour with a live org still has to be filled in.
 - Spring Boot support dates (4.0.x OSS until 2026-12-31, 4.1.x until 2027-07-31) come from a third-party review
   (AceMQ, compared with spring.io on 2026-10-22), not from spring.io directly.
 
@@ -276,8 +296,9 @@ Verified:
 |---|---|---|
 | Memory, idle, no org (reconnect loop) | **150.2 MiB / 384 MiB (39%)**; Postgres 35.9 MiB / 256 MiB | CI `docker-smoke`, `docker stats --no-stream` after 90 s, GitHub `ubuntu-latest`, 2026-11-10 |
 | Graceful stop (`docker compose stop`) | 0.4 s | same CI run |
-| Memory after 1 h with a live org | ___ MB | `docker stats` — *fill in after a real run* |
-| End-to-end latency (record insert → status) | ___ ms | *fill in after a real run* |
+| Memory, live org, ~1 min after start (Windows `java -jar`) | working set 233 MiB, peak 292 MiB, 36 threads | `Get-Process`; not comparable with `docker stats` |
+| Memory after 1 h with a live org, under load | ___ MiB | `scripts/measure-memory.sh` — *fill in after the load run* |
+| End-to-end latency (record insert → status in Salesforce) | ~1–3 s per record (2 records) | `CreatedDate` (1 s resolution) vs `processed_at`, live org, 2026-11-11 |
 
 ## Next steps
 
@@ -288,7 +309,8 @@ all of them need a free Developer Edition org that you create yourself.
 |---|---|---|
 | ~~Apex not compiled~~ — done 2026-11-10 | [ORG_SETUP §2](docs/ORG_SETUP.md#2-deploy-the-metadata-and-run-the-apex-tests) | 2/2 pass, 91% coverage (see *Verified*) |
 | `apex` CI job skipped | [ORG_SETUP §9](docs/ORG_SETUP.md#9-github-secrets-for-the-apex-ci-job): three repository secrets | green `apex` job |
-| No live-org run | [ORG_SETUP §3–8](docs/ORG_SETUP.md#3-key-and-certificate-for-jwt): JWT app, service, first-run checklist (end to end, restart resumes with CUSTOM, corrupted replay → EARLIEST without duplicates, dead letter, graceful stop) | ticked checklist, latency row in *Measured* |
+| ~~No live-org run~~ — done 2026-11-11 | [ORG_SETUP §3–8](docs/ORG_SETUP.md#3-key-and-certificate-for-jwt) | see *Verified* |
+| Admin used as integration user | [ORG_SETUP §4](docs/ORG_SETUP.md#4-integration-user): Salesforce Integration licence user, then change `SF_USERNAME` | first-run checklist 8.2 passes as that user |
 | Memory under load not measured | [LOAD_TEST.md](docs/LOAD_TEST.md): `scripts/measure-memory.sh` for 1 h while `scripts/load-test.sh` sends ~1,200 events (sized for DE limits) | the table row the script prints, in *Measured* |
 
 After that (v2 ideas, not needed for the interview story): the in-process subscriber test against a recorded

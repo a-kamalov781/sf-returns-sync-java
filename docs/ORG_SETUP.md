@@ -5,8 +5,9 @@ compilation, and memory under load. Everything below is done by you, in your own
 Nothing here needs a paid licence.
 
 > UI labels in Setup change between releases. If a label below doesn't match, search for it in Setup's
-> Quick Find. Steps 1–3 have been run against a live Developer Edition (Winter '27, API 68.0, 2026-11-10);
-> steps 4–9 are written from the documentation and not run yet: please report what differs.
+> Quick Find. Run against a live Developer Edition (Winter '27, API 68.0, 2026-11-10/11): steps 1–3, 5–8 with
+> option B (admin as the integration user). Not run yet: step 4 option A (integration user), 8.6 (graceful stop;
+> checked in CI instead), 9 (CI secrets). Please report what differs.
 >
 > `sf org login web` could not open a browser from a sandboxed terminal and timed out after ~60 s. If that
 > happens: set `SF_WEB_OAUTH_SERVER_TIMEOUT=1800000` (ms) and open the login page yourself. If you are already
@@ -143,8 +144,12 @@ but a reviewer will ask why the integration runs as an admin; switch to A before
    - Select permission sets: **Return Sync Integration** (option A). For option B or for the CI job (step 9)
      also select the **System Administrator** profile.
    - Save.
-3. Open **Settings** → OAuth Settings → **Consumer Key and Secret**. Copy the *Consumer Key* — that is
-   `SF_CLIENT_ID`. You don't need the secret.
+3. Open **Settings** → OAuth Settings → **Consumer Key and Secret**. Salesforce first asks for a verification code
+   it emails to the admin. Copy the *Consumer Key* — that is `SF_CLIENT_ID`. You don't need the secret.
+
+Seen in the live run: choosing *Admin approved users are pre-authorized* shows a "Confirm permitted user policy"
+dialog (existing users of the app lose access) — fine for a new app. The *OAuth Flows* box on the Policies tab
+stays empty even with JWT Bearer enabled; the certificate shows on the Settings tab under *Enable JWT Bearer Flow*.
 
 A new app can take a few minutes before the token endpoint accepts it. A Connected App with the same settings
 (Use digital signatures + pre-authorized policy) also works, if your org still allows creating Connected Apps.
@@ -163,6 +168,9 @@ sf org display --target-org returns-int
 
 Expected: `Connected Status: Connected`, `Username` = the integration user. Errors are listed in
 [Troubleshooting](#11-troubleshooting).
+
+If you log in with JWT as the **same user** you used in step 1 (option B), the CLI replaces that user's stored
+login and drops the old alias. Restore it: `sf alias set returns-dev=<SF_USERNAME>`.
 
 ## 7. Configure and start the service
 
@@ -192,6 +200,16 @@ docker compose logs -f service
 
 Expected in the log, in this order: Flyway `Successfully applied 1 migration`, then
 `Subscribed to /event/Return_Requested__e with preset LATEST`. No `Reconnecting in` loop.
+
+**Without Docker** (how the live run was done): run PostgreSQL 17 yourself, then from the repo root
+
+```bash
+set -a; . ./.env; set +a
+DB_URL=jdbc:postgresql://localhost:5432/returns DB_USER=returns SF_PRIVATE_KEY_PATH=secrets/sf_jwt_key.pem \
+  java -Xmx269m -XX:+UseSerialGC -Xss512k -XX:+ExitOnOutOfMemoryError -jar service/target/returns-sync.jar
+```
+
+and use `psql` instead of `docker compose exec db psql` in the checklist below.
 
 ## 8. First-run checklist
 
@@ -253,8 +271,9 @@ docker compose logs --since 2m service | grep -E "error-code|preset|Duplicate"
       events already processed (EARLIEST replays up to 72 h).
 - [ ] The duplicate-count query above still shows `rows = distinct_ids`, and no `Status__c` changed back.
 
-If the server answers the corrupted ID with an error code that doesn't contain `replayid`, the service falls back
-to CUSTOM again and loops: copy the exact `error-code` from the log into an issue.
+Live result: `INVALID_ARGUMENT`, "The Replay ID validation failed", `error-code=sfdc.platform.eventbus.grpc.subscription.fetch.replayid.corrupted`,
+then EARLIEST and four `Duplicate` lines. EARLIEST also replays events from before the service existed (up to
+72 h), so expect a few extra `Approved` records and possibly 404 dead letters for records deleted since.
 
 **8.5 Permanent error → dead letter**
 
