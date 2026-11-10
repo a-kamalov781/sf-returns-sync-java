@@ -24,3 +24,4 @@ salesforce/.sfdx/
 .vscode/
 .DS_Store
 Thumbs.db
+measurements/

@@ -9,7 +9,8 @@ written by hand, small enough to explain line by line in an interview.
 
 > **Status — read this first.** The service builds and all tests pass (`mvn verify`, CI). It has **not been run
 > against a live Salesforce org** yet, and memory under real load is **not measured** yet.
-> See [What is verified and what is not](#what-is-verified-and-what-is-not).
+> See [What is verified and what is not](#what-is-verified-and-what-is-not) and [Next steps](#next-steps).
+> Setting up an org step by step: [docs/ORG_SETUP.md](docs/ORG_SETUP.md).
 
 ## What it does
 
@@ -57,6 +58,8 @@ sf-returns-sync-java/
 │       ├── salesforce/  SalesforceRestClient, Transient/PermanentSalesforceException
 │       ├── store/       ReturnStore (JdbcClient, Flyway migration V1__init.sql)
 │       └── config/      SalesforceProperties
+├── docs/ORG_SETUP.md, docs/LOAD_TEST.md   live-org setup, first-run checklist, load test
+├── scripts/                         load-test.sh + load-test.apex, load-test-cleanup.apex, measure-memory.sh
 ├── docker-compose.yml               postgres:17-alpine + service (mem_limit 384m)
 └── .github/workflows/ci.yml         mvn verify, docker smoke run, Apex validation
 ```
@@ -170,6 +173,8 @@ Reference*, v68.0 (Winter '27):
 ## Run locally
 
 Prerequisites: a Developer Edition org, Salesforce CLI (`sf`), Docker, JDK 25 (only for running tests outside Docker).
+The short version is below; [docs/ORG_SETUP.md](docs/ORG_SETUP.md) has every step, the key/certificate commands,
+a JWT login check with the CLI, a first-run checklist and troubleshooting.
 
 1. Deploy metadata:
    `cd salesforce && sf project deploy start --source-dir force-app --target-org <alias>`
@@ -265,11 +270,26 @@ Verified:
 | Memory after 1 h with a live org | ___ MB | `docker stats` — *fill in after a real run* |
 | End-to-end latency (record insert → status) | ___ ms | *fill in after a real run* |
 
+## Next steps
+
+Each open item from [What is verified and what is not](#what-is-verified-and-what-is-not) has a prepared path;
+all of them need a free Developer Edition org that you create yourself.
+
+| Open item | How to close it | Evidence to put here |
+|---|---|---|
+| Apex not compiled | [ORG_SETUP §2](docs/ORG_SETUP.md#2-deploy-the-metadata-and-run-the-apex-tests): deploy + `sf apex run test` | test result and coverage; then [§9](docs/ORG_SETUP.md#9-github-secrets-for-the-apex-ci-job) turns on the `apex` CI job |
+| No live-org run | [ORG_SETUP §3–8](docs/ORG_SETUP.md#3-key-and-certificate-for-jwt): JWT app, service, first-run checklist (end to end, restart resumes with CUSTOM, corrupted replay → EARLIEST without duplicates, dead letter, graceful stop) | ticked checklist, latency row in *Measured* |
+| Memory under load not measured | [LOAD_TEST.md](docs/LOAD_TEST.md): `scripts/measure-memory.sh` for 1 h while `scripts/load-test.sh` sends ~1,200 events (sized for DE limits) | the table row the script prints, in *Measured* |
+
+After that (v2 ideas, not needed for the interview story): the in-process subscriber test against a recorded
+real schema, a metric for replay lag, `ManagedSubscribe` once it is GA.
+
 ## CI secrets (optional)
 
 The `apex` job validates the deploy and runs local Apex tests (`sf project deploy validate`, nothing changes in
-the org). It needs repository secrets `SF_CLIENT_ID`, `SF_USERNAME`, `SF_JWT_KEY` (the same External Client App
-can be used for `sf org login jwt`); without them the job is skipped with a notice.
+the org). It needs repository secrets `SF_CLIENT_ID`, `SF_USERNAME` (an admin: validation deploys Apex),
+`SF_JWT_KEY`; without them the job is skipped with a notice. How to set them:
+[ORG_SETUP §9](docs/ORG_SETUP.md#9-github-secrets-for-the-apex-ci-job).
 
 ## Not in v1 (on purpose)
 

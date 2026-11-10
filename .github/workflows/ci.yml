@@ -40,6 +40,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Shell scripts parse
+        run: for f in scripts/*.sh; do bash -n "$f" && echo "ok $f"; done
       - name: Throwaway config and key (never a real one)
         run: |
           cp .env.example .env
