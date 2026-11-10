@@ -14,6 +14,7 @@ import io.github.albert.returnsync.auth.SalesforceToken;
 import io.github.albert.returnsync.config.SalesforceProperties;
 import io.github.albert.returnsync.processing.ReturnEvent;
 import io.github.albert.returnsync.processing.ReturnProcessor;
+import io.github.albert.returnsync.processing.ReturnProcessor.Incoming;
 import io.github.albert.returnsync.salesforce.TransientSalesforceException;
 import io.github.albert.returnsync.store.ReturnStore;
 import io.grpc.Metadata;
@@ -40,6 +41,7 @@ import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -168,15 +170,32 @@ class PubSubSubscriberTest {
                 .setPendingNumRequested(BATCH - 1)        // server still owes events: no new request yet
                 .build());
 
-        verify(processor, timeout(WAIT_MS)).process(
-                new ReturnEvent("RR-1", "ORD-1", BigDecimal.valueOf(42.5), "evt-1"), replay);
+        verify(processor, timeout(WAIT_MS)).processBatch(
+                List.of(Incoming.of(new ReturnEvent("RR-1", "ORD-1", BigDecimal.valueOf(42.5), "evt-1"))), replay);
         assertThat(fake.requests.poll(300, TimeUnit.MILLISECONDS)).isNull();
         verify(store, never()).saveReplayId(any(), any());    // not a keepalive: processor owns the replay ID
     }
 
     @Test
+    void wholeFetchResponseIsOneBatchWithTheLastReplayId() throws Exception {
+        subscriber.start();
+        nextRequest();
+        ByteString r1 = ByteString.copyFromUtf8("r-1"), r2 = ByteString.copyFromUtf8("r-2"), r3 = ByteString.copyFromUtf8("r-3");
+
+        fake.stream().onNext(FetchResponse.newBuilder()
+                .addEvents(event("evt-1", avro("RR-1", "ORD-1", 1.0), r1))
+                .addEvents(event("evt-2", avro("RR-2", "ORD-2", 2.0), r2))
+                .addEvents(event("evt-3", avro("RR-3", "ORD-3", 3.0), r3))
+                .setPendingNumRequested(BATCH - 3).build());
+
+        verify(processor, timeout(WAIT_MS)).processBatch(argThat(batch -> batch.size() == 3
+                && batch.stream().map(i -> i.event().externalId()).toList().equals(List.of("RR-1", "RR-2", "RR-3"))), eq(r3));
+        verify(processor, times(1)).processBatch(any(), any());
+    }
+
+    @Test
     void nextRequestIsSentBeforeSlowProcessingFinishes() throws Exception {
-        doAnswer(inv -> { Thread.sleep(1_500); return null; }).when(processor).process(any(), any());
+        doAnswer(inv -> { Thread.sleep(1_500); return null; }).when(processor).processBatch(any(), any());
         subscriber.start();
         nextRequest();
         ByteString replay = ByteString.copyFromUtf8("r-1");
@@ -226,15 +245,18 @@ class PubSubSubscriberTest {
                 .addEvents(event("evt-bad", new byte[]{0x02}, replay))   // truncated Avro
                 .setPendingNumRequested(0).build());
 
-        verify(store, timeout(WAIT_MS)).deadLetterAndSaveReplay(any(), contains("undecodable"), eq(TOPIC), eq(replay));
-        verify(processor, never()).process(any(), any());
+        // handed to the processor as a poison item, so it is dead-lettered in the same commit as its batch
+        verify(processor, timeout(WAIT_MS)).processBatch(argThat(batch -> batch.size() == 1
+                && batch.getFirst().poisonReason() != null
+                && batch.getFirst().poisonReason().contains("undecodable")
+                && "evt-bad".equals(batch.getFirst().event().eventId())), eq(replay));
         assertThat(nextRequest().getNumRequested()).isEqualTo(BATCH);   // same stream keeps going
         assertThat(fake.subscribeCalls).isEqualTo(1);                   // no restart for a poison message
     }
 
     @Test
     void transientFailureRestartsFromLastSavedReplayId() throws Exception {
-        doThrow(new TransientSalesforceException("503")).when(processor).process(any(), any());
+        doThrow(new TransientSalesforceException("503")).when(processor).processBatch(any(), any());
         subscriber.start();
         nextRequest();
         ByteString saved = ByteString.copyFromUtf8("saved-before-failure");

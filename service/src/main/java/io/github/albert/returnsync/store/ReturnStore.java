@@ -6,7 +6,11 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * A separate bean on purpose: {@code @Transactional} works through a proxy, so a call to a transactional
@@ -15,38 +19,47 @@ import java.util.Optional;
 @Repository
 public class ReturnStore {
 
+    public record Processed(ReturnEvent event, String status) {}
+
+    public record DeadLetter(ReturnEvent event, String reason) {}
+
     private final JdbcClient jdbc;
 
     public ReturnStore(JdbcClient jdbc) {
         this.jdbc = jdbc;
     }
 
-    public boolean isProcessed(String externalId) {
-        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM processed_returns WHERE external_id = ?)")
-                .param(externalId)
-                .query(Boolean.class)
-                .single();
+    /** Which of these External IDs already have a result (one query per batch). */
+    public Set<String> processedAmong(Collection<String> externalIds) {
+        if (externalIds.isEmpty()) return Set.of();
+        return jdbc.sql("SELECT external_id FROM processed_returns WHERE external_id IN (:ids)")
+                .param("ids", externalIds)
+                .query(String.class)
+                .list().stream().collect(Collectors.toUnmodifiableSet());
     }
 
-    /** true = first write; false = already there (ON CONFLICT DO NOTHING). */
+    /**
+     * Results, dead letters and the replay ID of the last event of the batch, in one transaction: either the
+     * whole batch is recorded and the stream moves on, or nothing is and the batch comes again.
+     * {@code ON CONFLICT DO NOTHING} keeps a concurrent duplicate harmless.
+     */
     @Transactional
-    public boolean markProcessedAndSaveReplay(ReturnEvent e, String status, String topic, ByteString replayId) {
-        int inserted = jdbc.sql("""
-                        INSERT INTO processed_returns (external_id, event_id, status)
-                        VALUES (?, ?, ?)
-                        ON CONFLICT (external_id) DO NOTHING
-                        """)
-                .params(e.externalId(), e.eventId(), status)
-                .update();
-        saveReplayId(topic, replayId);
-        return inserted == 1;
-    }
-
-    @Transactional
-    public void deadLetterAndSaveReplay(ReturnEvent e, String reason, String topic, ByteString replayId) {
-        jdbc.sql("INSERT INTO dead_letters (external_id, payload, reason) VALUES (?, ?, ?)")
-                .params(e.externalId(), e.toString(), reason)
-                .update();
+    public void commitBatch(List<Processed> processed, List<DeadLetter> deadLetters,
+                            String topic, ByteString replayId) {
+        for (Processed p : processed) {
+            jdbc.sql("""
+                            INSERT INTO processed_returns (external_id, event_id, status)
+                            VALUES (?, ?, ?)
+                            ON CONFLICT (external_id) DO NOTHING
+                            """)
+                    .params(p.event().externalId(), p.event().eventId(), p.status())
+                    .update();
+        }
+        for (DeadLetter d : deadLetters) {
+            jdbc.sql("INSERT INTO dead_letters (external_id, payload, reason) VALUES (?, ?, ?)")
+                    .params(d.event().externalId(), d.event().toString(), d.reason())
+                    .update();
+        }
         saveReplayId(topic, replayId);
     }
 

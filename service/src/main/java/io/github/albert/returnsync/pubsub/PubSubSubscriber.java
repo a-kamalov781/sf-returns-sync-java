@@ -12,6 +12,7 @@ import io.github.albert.returnsync.auth.JwtBearerTokenService;
 import io.github.albert.returnsync.config.SalesforceProperties;
 import io.github.albert.returnsync.processing.ReturnEvent;
 import io.github.albert.returnsync.processing.ReturnProcessor;
+import io.github.albert.returnsync.processing.ReturnProcessor.Incoming;
 import io.github.albert.returnsync.store.ReturnStore;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -32,6 +33,8 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -198,18 +201,21 @@ public class PubSubSubscriber implements SmartLifecycle {
                         .setNumRequested(props.batchSize())
                         .build());
             }
-            for (ConsumerEvent ce : response.getEventsList()) {
-                ReturnEvent event;
-                try {
-                    event = ReturnEvent.from(decode(ce.getEvent()), ce.getEvent().getId());
-                } catch (IOException | AvroRuntimeException | ClassCastException e) {
-                    // poison message: it will never decode, so retrying would block the stream forever
-                    log.error("Undecodable event {}, sending to dead letters", ce.getEvent().getId(), e);
-                    store.deadLetterAndSaveReplay(new ReturnEvent(null, null, null, ce.getEvent().getId()),
-                            "undecodable event: " + e, props.topic(), ce.getReplayId());
-                    continue;
+            if (response.getEventsCount() > 0) {
+                List<Incoming> batch = new ArrayList<>(response.getEventsCount());
+                for (ConsumerEvent ce : response.getEventsList()) {
+                    String eventId = ce.getEvent().getId();
+                    try {
+                        batch.add(Incoming.of(ReturnEvent.from(decode(ce.getEvent()), eventId)));
+                    } catch (IOException | AvroRuntimeException | ClassCastException e) {
+                        // poison message: it will never decode, so retrying would block the stream forever.
+                        // It goes to dead letters in the same transaction as the rest of the batch.
+                        log.error("Undecodable event {}, sending to dead letters", eventId, e);
+                        batch.add(Incoming.poison(eventId, "undecodable event: " + e));
+                    }
                 }
-                processor.process(event, ce.getReplayId());
+                ByteString lastReplayId = response.getEvents(response.getEventsCount() - 1).getReplayId();
+                processor.processBatch(batch, lastReplayId);
             }
             attempt = 0;
         } catch (Exception e) {

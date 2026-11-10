@@ -4,7 +4,9 @@
     <hasActivationRequired>false</hasActivationRequired>
     <label>Return Sync Integration</label>
     <fieldPermissions>
-        <editable>false</editable>
+        <!-- editable: the sObject Collections upsert carries External_Id__c in each record body, and Salesforce
+             rejects it with INVALID_FIELD_FOR_INSERT_UPDATE without edit access (found live, API 68.0) -->
+        <editable>true</editable>
         <field>Return_Request__c.External_Id__c</field>
         <readable>true</readable>
     </fieldPermissions>

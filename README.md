@@ -2,7 +2,7 @@
 
 Salesforce ↔ Java integration without MuleSoft: Platform Events over the **Pub/Sub API (gRPC + Avro)**,
 idempotent processing, dead letters, retries of transient errors only, and the result written back to
-Salesforce with a **REST upsert by External ID** (`updateOnly=true`).
+Salesforce with a **batched REST upsert by External ID** (sObject Collections, `updateOnly=true`).
 
 It is a portfolio project. The goal is to show the same job a MuleSoft Salesforce Pub/Sub Connector flow does,
 written by hand, small enough to explain line by line in an interview.
@@ -23,7 +23,8 @@ written by hand, small enough to explain line by line in an interview.
    (High Volume, Publish After Commit) with one `EventBus.publish` per trigger batch.
 3. The Java service subscribes via the Pub/Sub API (`api.pubsub.salesforce.com:7443`), decodes the Avro payload,
    decides `Approved` / `Rejected` / `Manual_Review`, and calls
-   `PATCH /services/data/v68.0/sobjects/Return_Request__c/External_Id__c/{id}?updateOnly=true`.
+   one `PATCH /services/data/v68.0/composite/sobjects/Return_Request__c/External_Id__c?updateOnly=true` per
+   `FetchResponse` (up to 100 events, ≤ 200 records per call).
 4. The result and the replay ID are committed in **one PostgreSQL transaction**. Permanent errors go to
    `dead_letters` (also together with the replay ID). Transient errors are retried, then the stream restarts
    from the last saved replay ID.
@@ -39,7 +40,7 @@ flowchart LR
     J["JwtBearerTokenService<br/>JWT RS256 → /services/oauth2/token"] -.token.-> S
     J -.token.-> R
     S --> P["ReturnProcessor<br/>idempotency + retries"]
-    P -->|"PATCH upsert by External_Id__c<br/>?updateOnly=true"| R[Salesforce REST API v68.0]
+    P -->|"one Collections upsert per batch<br/>by External_Id__c, ?updateOnly=true"| R[Salesforce REST API v68.0]
     P -->|"one transaction:<br/>processed_returns + replay_state"| DB[(PostgreSQL)]
     P -->|permanent errors| DL[(dead_letters)]
 ```
@@ -109,7 +110,7 @@ Names from Salesforce *[Integration Patterns and Practices](https://developer.sa
 
 | Rule (Pub/Sub API docs) | Where |
 |---|---|
-| `num_requested` ≤ 100 | `SalesforceProperties` rejects `batch-size` outside 1..100 at startup; default 25 |
+| `num_requested` ≤ 100 | `SalesforceProperties` rejects `batch-size` outside 1..100 at startup; default 100 |
 | After `pending_num_requested == 0`, send a new `FetchRequest` within 60 s | `PubSubSubscriber.handle` sends it **before** processing the batch, so the deadline doesn't depend on REST latency |
 | Keepalive (empty `FetchResponse`) carries `latest_replay_id`: store it | `handle` → `ReturnStore.saveReplayId` |
 | While events are requested the server answers at least every 270 s | idle watchdog: no `FetchResponse` for 300 s (`salesforce.stream-idle-timeout`) → cancel and resubscribe (found by the live load test) |
@@ -131,12 +132,21 @@ Names from Salesforce *[Integration Patterns and Practices](https://developer.sa
   extra batch waits in the worker queue (the next request is only sent when the worker gets to a response).
   If one batch ever takes longer than 60 s, the server closes the stream and the service resumes from the stored
   replay ID — slower, not lossy.
-- **REST call outside the DB transaction**; result + replay ID in one transaction (`@Transactional` on a public
+- **One Salesforce call per `FetchResponse`** (sObject Collections upsert, `allOrNone=false`): first measured with
+  one PATCH per event — p95 34 s for a burst of 100 — then batched: p95 1.9 s (see [Load test results](#load-test-results)).
+  `updateOnly=true` works per record in Collections (an unknown External ID → `NOT_FOUND`, nothing created; checked
+  live). Trade-off found live: Collections carries `External_Id__c` in each record body, so the integration user
+  needs **edit** on that field (`INVALID_FIELD_FOR_INSERT_UPDATE` otherwise). Single-record upsert or a Composite
+  request of single upserts (≤ 25 per call) would avoid that permission at the cost of more calls.
+- **REST call outside the DB transaction**; results + dead letters + replay ID in one transaction (`@Transactional` on a public
   method of a separate bean, so the proxy works).
 - **Retries only for transient errors**: 429, 5xx, I/O, `REQUEST_LIMIT_EXCEEDED`, and a 401 that survives one token
   refresh (a credentials problem is not the message's fault; it must not dead-letter every event). 3 attempts,
   0.5 s → 1 s. After that the stream restarts from the last saved replay ID: events stay on the bus for 72 h.
-- **Permanent errors** (e.g. 404, unknown External ID with `updateOnly`) → `dead_letters` + replay ID advances.
+- **Permanent errors** (e.g. `NOT_FOUND`, unknown External ID with `updateOnly`) → `dead_letters` + replay ID advances.
+  Exception: if **every** record of a call fails with a permission/configuration error
+  (`INVALID_FIELD_FOR_INSERT_UPDATE`, `INSUFFICIENT_ACCESS_*`, …) it is treated as transient — a missing field
+  permission once dead-lettered a whole live batch; now the events wait on the bus until the permission is fixed.
 - **Poison messages**: an event whose Avro payload can't be decoded goes to `dead_letters` instead of restarting
   the stream forever. A failure to *fetch* the schema is transient and restarts the stream.
 - `REQUEST_LIMIT_EXCEEDED` (15,000 REST calls / 24 h in Developer Edition) is treated as transient. Retries won't
@@ -156,7 +166,7 @@ Reference*, v68.0 (Winter '27):
 |---|---|---|
 | Event delivery to Pub/Sub API / CometD / empApi / relays | 10,000 / 24 h (rolling, shared by all API subscribers; Apex triggers and flows don't count) | small org volume; one subscriber |
 | Event publishing | 50,000 / hour | one `EventBus.publish` per trigger batch |
-| REST API requests | 15,000 / 24 h (Total Calls Per 24-Hour Period) | one PATCH per return; no polling |
+| REST API requests | 15,000 / 24 h (Total Calls Per 24-Hour Period) | one Collections call per batch of up to 100 events; no polling |
 | High-volume event retention | 72 h | replay store; EARLIEST fallback |
 | `num_requested` | ≤ 100 | 25 |
 | Next `FetchRequest` | within 60 s after pending = 0 | sent before processing |
@@ -204,7 +214,7 @@ Tests: `cd service && ./mvnw verify` (Testcontainers integration tests need Dock
 |---|---|---|
 | `ReturnProcessorTest` (JUnit 5 + Mockito, parameterized) | business rule, duplicate skip, retry of transient only, dead letter for permanent | — |
 | `PubSubSubscriberTest` (in-process gRPC fake of the Pub/Sub API) | first request LATEST/CUSTOM with `num_requested`, auth headers, keepalive replay saved, next request sent while a batch is still processing, `replayid` error → EARLIEST, auth error → token dropped, poison event → dead letter, transient failure → resubscribe from saved replay | — |
-| `SalesforceRestClientTest` (WireMock) | URL, `updateOnly=true`, Bearer header, 401 → one retry with a fresh token, 5xx / 429 / `REQUEST_LIMIT_EXCEEDED` transient, 404 permanent, `%20` in path | — |
+| `SalesforceRestClientTest` (WireMock, response bodies as the live org returns them) | Collections URL, `updateOnly=true`, request body, results in order, `NOT_FOUND` per record, >200 records split into calls, 401 → one retry with a fresh token, 5xx / 429 / `REQUEST_LIMIT_EXCEEDED` / `UNABLE_TO_LOCK_ROW` transient, whole-batch permission error transient, 400 permanent | — |
 | `JwtBearerTokenServiceTest` (WireMock) | RS256 signature verifies with the public key, claims `iss/sub/aud/exp ≤ 180 s`, org ID parsing, caching and invalidation | — |
 | `WiringTest` | Boot 4 exposes the Jackson 3 `tools.jackson.databind.json.JsonMapper` bean; `batch-size > 100` rejected | — |
 | `ReturnStoreIT` (Testcontainers PostgreSQL 17) | full Spring context with Flyway, `ON CONFLICT DO NOTHING`, replay ID bytes round-trip unchanged, dead letter + replay in one call | Docker |
@@ -311,15 +321,27 @@ Live Developer Edition, 2026-11-11. `scripts/load-test.sh`: 12 rounds, each one 
 | Records that got a status | **1,200 / 1,200** (900 `Approved`, 300 `Manual_Review`, 0 left `New`) |
 | Duplicates processed | **0** (`processed_returns`: 1,205 rows = 1,205 distinct External IDs) |
 | Errors / retries / dead letters from the run | **0** (the one `dead_letters` row is the earlier deliberate 404 test) |
-| Throughput, one worker, one REST PATCH per event | **3.4 events/s** (1,000-event backlog drained in 4 min 55 s) |
-| End-to-end latency, burst of 100 (insert → status in Salesforce) | min 1.3 s, **p50 18.9 s, p95 33.7 s**, max 35.3 s (200 events, rounds 1–2) |
+| Throughput, one worker, one REST PATCH per event | **3.4 events/s** (1,000-event backlog drained in 4 min 55 s) — before batching |
+| End-to-end latency, burst of 100 (insert → status in Salesforce) | min 1.3 s, **p50 18.9 s, p95 33.7 s**, max 35.3 s (200 events, rounds 1–2) — before batching; batched: p50 1.2 s, p95 1.9 s |
 | Single event, no queue | ~1–3 s |
 | Memory (Windows working set) | peak **250 MiB**; heap used ≤ 71 MiB of 269 MiB; 23–36 threads |
-| API requests used | ~1,300 of 15,000 / 24 h (one PATCH per event + CLI calls) |
+| API requests used | ~1,300 of 15,000 / 24 h (one PATCH per event + CLI calls) — before batching |
 
 Latency under a burst is queueing: events are processed one by one in replay order, ~0.3 s per REST call, so the
-100th event of a burst waits ~30 s. The obvious next step is one sObject Collections upsert per batch (up to 200
-records per call), which would also cut API usage ~25x at `batch-size` 25.
+100th event of a burst waits ~30 s. So the status write-back was changed to one sObject Collections upsert per
+`FetchResponse` and measured again (live, 2 rounds x 100, integration user):
+
+| Burst of 100, insert → status in Salesforce | one PATCH per event | **batched** |
+|---|---|---|
+| min | 1.3 s | **0.4 s** |
+| p50 | 18.9 s | **1.2 s** |
+| p95 | 33.7 s | **1.9 s** |
+| max | 35.3 s | **2.3 s** |
+| processed / dead letters | 200 / 0 | 200 / 0 |
+
+The first batched run found the `External_Id__c` edit-permission requirement above: all 200 events were
+dead-lettered with `INVALID_FIELD_FOR_INSERT_UPDATE`. After granting the permission they were re-driven by
+resubscribing with EARLIEST: the 1,205 already processed were skipped as duplicates, the 200 were processed.
 
 The memory "committed" by the JVM (Native Memory Tracking, ~370 MiB) is not usage: on a 16 GB Windows host the
 default initial heap is 1/64 of RAM (~256 MB) and is reserved up front; inside the 384 MB container it is ~6 MB.
@@ -344,15 +366,14 @@ backlog with no duplicates. Nothing was lost: the events waited on the bus (72 h
 | Graceful stop (`docker compose stop`) | 0.4 s | same CI run |
 | Memory, live org, 1 h load + backlog drain (Windows `java -jar`) | working set peak 250 MiB, heap used ≤ 71 MiB | sampled every 10–60 s; not comparable with `docker stats` |
 | Memory, live org, 1 h, in the container | ___ MiB | `scripts/measure-memory.sh` — *needs Docker* |
-| Throughput | 3.4 events/s | 1,000-event backlog, live org |
-| End-to-end latency | ~1–3 s single; p50 18.9 s / p95 33.7 s in a burst of 100 | `CreatedDate` vs `processed_at` |
+| Throughput (one PATCH per event) | 3.4 events/s | 1,000-event backlog, live org; batched throughput: see live-load |
+| End-to-end latency, burst of 100 | batched: p50 1.2 s / p95 1.9 s / max 2.3 s (one PATCH per event was p50 18.9 s / p95 33.7 s) | `CreatedDate` vs `processed_at`, live org |
 
 ## Next steps
 
 | Open item | How to close it |
 |---|---|
-| Container memory with a live org | run `docker compose up` + `scripts/measure-memory.sh` + `scripts/load-test.sh` on a machine with Docker ([LOAD_TEST.md](docs/LOAD_TEST.md)) |
-| Burst latency (p95 34 s per 100 events) | batch the status updates: one sObject Collections upsert per `FetchResponse` |
+| Container memory with a live org | GitHub Actions → **live-load** (manual): compose with the real org, `scripts/load-test.sh`, `scripts/measure-memory.sh`, results in the run summary |
 | Graceful stop with a live org | `docker compose stop -t 30 service` during a run ([ORG_SETUP 8.6](docs/ORG_SETUP.md#8-first-run-checklist)) |
 
 v2 ideas, not needed for the interview story: a metric for replay lag, `ManagedSubscribe` once it is GA.

@@ -1,0 +1,158 @@
+name: live-load
+
+# Manual: the containerised service against the live Developer Edition, under load, with docker stats.
+# Uses the same repository secrets as the apex job (SF_USERNAME there is the admin, who runs the load script).
+# Costs Developer Edition allowances: ROUNDS x PER_ROUND event deliveries (10,000 / 24 h) and a few API calls.
+on:
+  workflow_dispatch:
+    inputs:
+      service_username:
+        description: Integration user the service logs in as (JWT, pre-authorized in the External Client App)
+        required: true
+      rounds:
+        description: Load rounds
+        default: '12'
+      per_round:
+        description: Records per round
+        default: '100'
+      interval:
+        description: Seconds between rounds
+        default: '300'
+      sample_seconds:
+        description: How long docker stats is sampled
+        default: '3600'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-org          # one live run at a time: two subscribers would double the deliveries
+  cancel-in-progress: false
+
+jobs:
+  live-load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check inputs
+        env:
+          ROUNDS: ${{ inputs.rounds }}
+          PER_ROUND: ${{ inputs.per_round }}
+          INTERVAL: ${{ inputs.interval }}
+          SAMPLE: ${{ inputs.sample_seconds }}
+        run: |
+          for v in "$ROUNDS" "$PER_ROUND" "$INTERVAL" "$SAMPLE"; do [[ "$v" =~ ^[0-9]+$ ]] || { echo "::error::not a number: $v"; exit 1; }; done
+          test -n "$SF_CLIENT_ID" || { echo "::error::repository secrets are not set"; exit 1; }
+
+      - name: Key and config from secrets (never printed)
+        env:
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
+          SERVICE_USER: ${{ inputs.service_username }}
+        run: |
+          mkdir -p secrets
+          printf '%s\n' "$SF_JWT_KEY" | tr -d '\r' | sed '/^[[:space:]]*$/d' > secrets/sf_jwt_key.pem
+          if ! grep -q -- '-----BEGIN' secrets/sf_jwt_key.pem; then
+            { echo '-----BEGIN PRIVATE KEY-----'; cat secrets/sf_jwt_key.pem; echo '-----END PRIVATE KEY-----'; } > secrets/k && mv secrets/k secrets/sf_jwt_key.pem
+          fi
+          openssl pkey -in secrets/sf_jwt_key.pem -noout
+          chmod 644 secrets/sf_jwt_key.pem
+          {
+            echo "SF_LOGIN_URL=https://login.salesforce.com"
+            echo "SF_AUDIENCE=https://login.salesforce.com"
+            echo "SF_CLIENT_ID=$SF_CLIENT_ID"
+            echo "SF_USERNAME=$SERVICE_USER"
+            echo "DB_PASSWORD=$(openssl rand -hex 16)"
+          } > .env
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - run: npm install --global @salesforce/cli
+
+      - name: Admin login for the load script (JWT)
+        env:
+          SF_USERNAME: ${{ secrets.SF_USERNAME }}
+        run: |
+          sf org login jwt --client-id "$SF_CLIENT_ID" --jwt-key-file secrets/sf_jwt_key.pem \
+            --username "$SF_USERNAME" --instance-url https://login.salesforce.com --alias ci
+
+      - name: Start the stack and wait for the subscription
+        run: |
+          docker compose up -d --build
+          for i in $(seq 1 60); do
+            docker compose logs service | grep -q 'Subscribed to' && break
+            sleep 5
+          done
+          docker compose logs service | grep -E 'Subscribed to|Successfully applied' || { docker compose logs service | tail -50; exit 1; }
+
+      - name: Memory sampler (background)
+        env:
+          SAMPLE: ${{ inputs.sample_seconds }}
+        run: |
+          DURATION="$SAMPLE" INTERVAL=60 OUT_DIR=measurements nohup scripts/measure-memory.sh > measurements-sampler.log 2>&1 &
+          echo "sampler started"
+
+      - name: Load
+        env:
+          ROUNDS: ${{ inputs.rounds }}
+          PER_ROUND: ${{ inputs.per_round }}
+          INTERVAL: ${{ inputs.interval }}
+        run: ORG=ci ROUNDS="$ROUNDS" PER_ROUND="$PER_ROUND" INTERVAL="$INTERVAL" MAX_TOTAL=2000 scripts/load-test.sh | tee load-test.log
+
+      - name: Wait for the sampler and the backlog
+        run: |
+          while pgrep -f measure-memory.sh > /dev/null; do sleep 15; done
+          cat measurements-sampler.log
+          sleep 30
+
+      - name: Results
+        run: |
+          RUN=$(grep -oE 'r[0-9]{8}T[0-9]{6}' load-test.log | head -1)
+          sf data query --target-org ci --result-format csv \
+            --query "SELECT External_Id__c, CreatedDate FROM Return_Request__c WHERE Order_Number__c LIKE 'LOAD-$RUN-%'" > created.csv
+          docker compose cp created.csv db:/tmp/created.csv
+          docker compose exec -T db psql -U returns -d returns -v ON_ERROR_STOP=1 <<'SQL' | tee results.txt
+          CREATE TEMP TABLE c(ext text, created timestamptz);
+          \copy c FROM '/tmp/created.csv' WITH (FORMAT csv, HEADER true)
+          SELECT count(*) AS created, count(p.external_id) AS processed,
+                 round(percentile_cont(0.5)  WITHIN GROUP (ORDER BY extract(epoch FROM p.processed_at - c.created))::numeric, 1) AS p50_s,
+                 round(percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM p.processed_at - c.created))::numeric, 1) AS p95_s,
+                 round(max(extract(epoch FROM p.processed_at - c.created))::numeric, 1) AS max_s
+            FROM c LEFT JOIN processed_returns p ON p.external_id = c.ext;
+          SELECT count(*) AS rows, count(DISTINCT external_id) AS distinct_ids FROM processed_returns;
+          SELECT count(*) AS dead_letters FROM dead_letters;
+          SQL
+          id="$(docker compose ps -q service)"
+          docker inspect --format 'restarts={{.RestartCount}} oomkilled={{.State.OOMKilled}} running={{.State.Running}}' "$id" | tee -a results.txt
+          echo "warnings/errors in service log: $(docker compose logs service | grep -cE ' (WARN|ERROR) ')" | tee -a results.txt
+          {
+            echo '### live-load'
+            echo '```'; cat results.txt; echo '```'
+            echo '```'; tail -6 measurements-sampler.log; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: live-load
+          path: |
+            measurements/
+            measurements-sampler.log
+            load-test.log
+            results.txt
+
+      - name: Service log tail
+        if: always()
+        run: docker compose logs service | grep -vE '^service-1  \| WARNING' | tail -40
+
+      - name: Clean up records, stop the stack
+        if: always()
+        run: |
+          for i in 1 2; do sf apex run --file scripts/load-test-cleanup.apex --target-org ci | grep LOAD_TEST_CLEANUP || true; done
+          docker compose stop -t 30 service || true
+          docker compose down -v || true
+          rm -f secrets/sf_jwt_key.pem .env

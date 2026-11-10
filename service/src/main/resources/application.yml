@@ -20,7 +20,7 @@ salesforce:
   pubsub-host: api.pubsub.salesforce.com
   pubsub-port: 7443
   topic: /event/Return_Requested__e
-  batch-size: 25                        # <= 100 (num_requested limit)
+  batch-size: 100                       # num_requested limit; one FetchResponse = one Salesforce call
   stream-idle-timeout: 300s             # > 270 s keepalive interval: silence longer = dead stream, resubscribe
 
 returns:
