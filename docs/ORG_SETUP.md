@@ -5,8 +5,12 @@ compilation, and memory under load. Everything below is done by you, in your own
 Nothing here needs a paid licence.
 
 > UI labels in Setup change between releases. If a label below doesn't match, search for it in Setup's
-> Quick Find. The steps were written against the documentation (Winter '27, API 68.0) and **have not been
-> run against an org yet**: please report what differs.
+> Quick Find. Steps 1–3 have been run against a live Developer Edition (Winter '27, API 68.0, 2026-11-10);
+> steps 4–9 are written from the documentation and not run yet: please report what differs.
+>
+> `sf org login web` could not open a browser from a sandboxed terminal and timed out after ~60 s. If that
+> happens: set `SF_WEB_OAUTH_SERVER_TIMEOUT=1800000` (ms) and open the login page yourself. If you are already
+> logged in to the org in the browser, no password is asked, only *Allow*.
 
 **Never commit:** `secrets/`, `.env`, `*.key`, `*.pem`, `*.crt` (all git-ignored). The private key stays on your
 machine and, optionally, in one GitHub Actions secret.
@@ -49,8 +53,9 @@ cd salesforce
 sf project deploy start --source-dir force-app --target-org returns-dev --test-level RunLocalTests --wait 15
 ```
 
-A Developer Edition is a production-type org, so Apex tests run on deploy. This is the first time the Apex
-compiles. If it fails, the error names the file and line: fix, commit, deploy again.
+A Developer Edition is a production-type org, so Apex tests run on deploy. If it fails, the error names the
+file and line: fix, commit, deploy again. The tests run as a generated user with the `Return_Request_Manager`
+permission set (see below), so they don't depend on the deploying admin's profile.
 
 Run the tests on their own (also shows coverage):
 
@@ -58,7 +63,17 @@ Run the tests on their own (also shows coverage):
 sf apex run test --target-org returns-dev --class-names ReturnRequestTriggerHandlerTest --code-coverage --result-format human --wait 10
 ```
 
-Expected: 2 tests pass, `ReturnRequestTriggerHandler` coverage above 75%.
+Expected: 2 tests pass, `ReturnRequestTriggerHandler` coverage above 75%. First live run (2026-11-10, API 68.0):
+2/2 passed, trigger 100%, handler 90%, org-wide 91%.
+
+**Give yourself access to the fields.** Deployed custom fields get no field-level security on any profile, so
+even the admin can't see or write them: `sf data create record` fails, anonymous Apex (`scripts/load-test.apex`)
+fails to compile with *Field does not exist*, and the fields are hidden in the UI. Assign the project's
+`Return_Request_Manager` permission set to the admin (and to anyone who creates return requests):
+
+```bash
+sf org assign permset --target-org returns-dev --name Return_Request_Manager
+```
 
 Check by hand that the trigger works (no service needed yet):
 
@@ -67,7 +82,7 @@ sf data create record --target-org returns-dev --sobject Return_Request__c --val
 sf data query --target-org returns-dev --query "SELECT Name, External_Id__c, Status__c FROM Return_Request__c ORDER BY CreatedDate DESC LIMIT 5"
 ```
 
-Expected: `Status__c = New` and a UUID in `External_Id__c`.
+Expected: `Status__c = New` and a UUID in `External_Id__c` (seen on the first live run: `RR-00000`, `New`, UUID).
 
 ## 3. Key and certificate for JWT
 

@@ -1,7 +1,10 @@
 # Load test and memory measurement
 
 Goal: one hour of steady event traffic from a live Developer Edition org, and the real `docker stats` numbers
-for the README *Measured* table. Prerequisite: [ORG_SETUP.md](ORG_SETUP.md) steps 1–8 pass.
+for the README *Measured* table. Prerequisite: [ORG_SETUP.md](ORG_SETUP.md) steps 1–8 pass, and the user running
+the script has the `Return_Request_Manager` permission set (otherwise the anonymous Apex fails to compile with
+*Field does not exist*). `load-test.apex` and `load-test-cleanup.apex` were run once in a live Developer Edition
+(1 record in, 1 deleted); the full one-hour run has not been done yet.
 
 ## Budget: Developer Edition limits
 

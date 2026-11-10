@@ -7,8 +7,9 @@ Salesforce with a **REST upsert by External ID** (`updateOnly=true`).
 It is a portfolio project. The goal is to show the same job a MuleSoft Salesforce Pub/Sub Connector flow does,
 written by hand, small enough to explain line by line in an interview.
 
-> **Status — read this first.** The service builds and all tests pass (`mvn verify`, CI). It has **not been run
-> against a live Salesforce org** yet, and memory under real load is **not measured** yet.
+> **Status — read this first.** The service builds and all tests pass (`mvn verify`, CI). The Salesforce part is
+> deployed to a live Developer Edition and its Apex tests pass there. The **Java service has not run against a
+> live org** yet, and memory under real load is **not measured** yet.
 > See [What is verified and what is not](#what-is-verified-and-what-is-not) and [Next steps](#next-steps).
 > Setting up an org step by step: [docs/ORG_SETUP.md](docs/ORG_SETUP.md).
 
@@ -48,7 +49,7 @@ sf-returns-sync-java/
 │       ├── objects/Return_Requested__e/    HighVolume, PublishAfterCommit
 │       ├── triggers/ReturnRequestTrigger   thin trigger
 │       ├── classes/ReturnRequestTriggerHandler(+Test)   bulk test on 200 records
-│       └── permissionsets/Return_Sync_Integration
+│       └── permissionsets/   Return_Sync_Integration (service user), Return_Request_Manager (people)
 ├── service/                         Maven, Spring Boot 4.1, Java 25
 │   ├── src/main/proto/pubsub_api.proto      copy from forcedotcom/pub-sub-api (CC0), byte-identical
 │   └── src/main/java/io/github/albert/returnsync/
@@ -247,15 +248,23 @@ Verified:
     `com.fasterxml.jackson.annotation`.
   - `org.apache.tomcat:annotations-api` from the plan is not needed: grpc-java 1.85.1 generates
     `@io.grpc.stub.annotations.GrpcGenerated`, the build compiles without it.
+- **Salesforce part in a live Developer Edition** (Winter '27, API 68.0, 2026-11-10): `sf project deploy start
+  --test-level RunLocalTests` succeeds (14 components), Apex tests 2/2 pass, coverage trigger 100%, handler 90%,
+  org-wide 91%. A record created with `sf data create record` gets a UUID `External_Id__c` and `Status__c = New`.
+  `scripts/load-test.apex` and `scripts/load-test-cleanup.apex` compile and run. `sf limits api display` shows the
+  Developer Edition limits used below (15,000 API requests, 10,000 deliveries, 50,000 publishes/h, 5 MB data).
+- The first live deploy found a real problem: deployed custom fields get no field-level security on profiles, so the
+  tests failed with `DmlException: fields being inaccessible` and even the admin couldn't write the fields. Fixed by
+  the `Return_Request_Manager` permission set and tests that `System.runAs` a user who has it.
 - `pubsub_api.proto` is byte-identical to the one in `forcedotcom/pub-sub-api` (root and `java/src/main/proto`).
 - Versions differ from the official sample's `pom.xml` on purpose (it has Java 11, grpc 1.64.0, protoc 3.25.3,
   Avro 1.11.0); this repo uses current releases: grpc 1.85.1, protobuf 3.25.9, Avro 1.12.2, WireMock 3.13.2.
 
 **Not verified yet:**
 
-- **No run against a live Developer Edition org**: the JWT login, `tenantid`, the real Avro schema of
-  `Return_Requested__e`, `updateOnly` upsert and the SFDX deploy were checked against documentation and fakes only.
-- **Apex has not been compiled or run** (no org in this environment). CI validates it once the org secrets exist.
+- **The Java service has not run against a live org**: the JWT login, `tenantid`, the real Avro schema of
+  `Return_Requested__e` and the `updateOnly` upsert were checked against documentation and fakes only.
+- The `apex` CI job is still skipped (no org secrets in the repository yet).
 - **Memory under real load is not measured.** Only the idle figure from CI exists (150 MiB, see below);
   the number after an hour with a live org still has to be filled in.
 - Spring Boot support dates (4.0.x OSS until 2026-12-31, 4.1.x until 2027-07-31) come from a third-party review
@@ -277,7 +286,8 @@ all of them need a free Developer Edition org that you create yourself.
 
 | Open item | How to close it | Evidence to put here |
 |---|---|---|
-| Apex not compiled | [ORG_SETUP §2](docs/ORG_SETUP.md#2-deploy-the-metadata-and-run-the-apex-tests): deploy + `sf apex run test` | test result and coverage; then [§9](docs/ORG_SETUP.md#9-github-secrets-for-the-apex-ci-job) turns on the `apex` CI job |
+| ~~Apex not compiled~~ — done 2026-11-10 | [ORG_SETUP §2](docs/ORG_SETUP.md#2-deploy-the-metadata-and-run-the-apex-tests) | 2/2 pass, 91% coverage (see *Verified*) |
+| `apex` CI job skipped | [ORG_SETUP §9](docs/ORG_SETUP.md#9-github-secrets-for-the-apex-ci-job): three repository secrets | green `apex` job |
 | No live-org run | [ORG_SETUP §3–8](docs/ORG_SETUP.md#3-key-and-certificate-for-jwt): JWT app, service, first-run checklist (end to end, restart resumes with CUSTOM, corrupted replay → EARLIEST without duplicates, dead letter, graceful stop) | ticked checklist, latency row in *Measured* |
 | Memory under load not measured | [LOAD_TEST.md](docs/LOAD_TEST.md): `scripts/measure-memory.sh` for 1 h while `scripts/load-test.sh` sends ~1,200 events (sized for DE limits) | the table row the script prints, in *Measured* |
 
