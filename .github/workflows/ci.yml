@@ -105,9 +105,15 @@ jobs:
           SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
           SF_USERNAME: ${{ secrets.SF_USERNAME }}
         run: |
-          printf '%s\n' "$SF_JWT_KEY" | tr -d '\r' > server.key
-          # Diagnostics without revealing the key: PEM header line, line count, and whether OpenSSL can parse it.
-          echo "key header: $(head -1 server.key | cut -c1-40)   lines: $(wc -l < server.key)"
+          printf '%s\n' "$SF_JWT_KEY" | tr -d '\r' | sed '/^[[:space:]]*$/d' > server.key
+          # Pasting the PEM into the GitHub form sometimes drops the BEGIN/END lines: re-add them (PKCS#8 body).
+          if ! grep -q -- '-----BEGIN' server.key; then
+            { echo '-----BEGIN PRIVATE KEY-----'; cat server.key; echo '-----END PRIVATE KEY-----'; } > server.key.tmp
+            mv server.key.tmp server.key
+            echo "SF_JWT_KEY had no BEGIN/END lines: added them"
+          fi
+          # Diagnostics without printing any key material
+          echo "key lines (incl. BEGIN/END): $(wc -l < server.key)"
           if ! openssl pkey -in server.key -noout 2>/dev/null; then
             echo "::error::SF_JWT_KEY is not a readable private key. Paste the whole secrets/sf_jwt_key.pem, BEGIN/END lines included."
             rm -f server.key
