@@ -7,11 +7,12 @@ Salesforce with a **REST upsert by External ID** (`updateOnly=true`).
 It is a portfolio project. The goal is to show the same job a MuleSoft Salesforce Pub/Sub Connector flow does,
 written by hand, small enough to explain line by line in an interview.
 
-> **Status — read this first.** The service builds and all tests pass (`mvn verify`, CI). On 2026-11-10/11 it ran
-> **end to end against a live Developer Edition**: JWT login, Pub/Sub subscription, real Avro events, REST upsert,
-> restart from the stored replay ID, corrupted replay ID → EARLIEST with duplicates dropped, a 404 dead letter.
-> Still open: memory under **sustained load** (one-hour `docker stats` run), and an integration user instead of
-> the admin.
+> **Status — read this first.** The service builds and all tests pass (`mvn verify`, CI, including Apex
+> validation against a live org). On 2026-11-10/11 it ran **end to end against a live Developer Edition** as a
+> least-privilege integration user: JWT login, real Avro events, REST upsert, restart from the stored replay ID,
+> corrupted replay ID → EARLIEST with duplicates dropped, a 404 dead letter, and a one-hour load test (1,200 events,
+> 0 duplicates, 0 errors) that found and led to a fix for a silent dead stream. Still open: the memory figure
+> **inside the container** with a live org (the live runs had no Docker).
 > See [What is verified and what is not](#what-is-verified-and-what-is-not) and [Next steps](#next-steps).
 > Setting up an org step by step: [docs/ORG_SETUP.md](docs/ORG_SETUP.md).
 
@@ -111,6 +112,7 @@ Names from Salesforce *[Integration Patterns and Practices](https://developer.sa
 | `num_requested` ≤ 100 | `SalesforceProperties` rejects `batch-size` outside 1..100 at startup; default 25 |
 | After `pending_num_requested == 0`, send a new `FetchRequest` within 60 s | `PubSubSubscriber.handle` sends it **before** processing the batch, so the deadline doesn't depend on REST latency |
 | Keepalive (empty `FetchResponse`) carries `latest_replay_id`: store it | `handle` → `ReturnStore.saveReplayId` |
+| While events are requested the server answers at least every 270 s | idle watchdog: no `FetchResponse` for 300 s (`salesforce.stream-idle-timeout`) → cancel and resubscribe (found by the live load test) |
 | Replay ID is opaque bytes | `BYTEA` column, `ByteString` end to end, never converted |
 | Replay option is read only in the first `FetchRequest` of a stream | `subscribe()`: CUSTOM with stored ID, else LATEST |
 | Replay ID older than 72 h or corrupted (`...replayid...` error code) | next subscribe uses EARLIEST; idempotency drops the duplicates |
@@ -119,6 +121,8 @@ Names from Salesforce *[Integration Patterns and Practices](https://developer.sa
 
 ## Design decisions & trade-offs
 
+- **Idle watchdog.** A dead TCP connection can leave a gRPC stream open with nothing arriving and no error. The
+  keepalive guarantee (≤ 270 s) gives a safe timeout: 300 s of silence → resubscribe from the stored replay ID.
 - `Subscribe` + client-side replay store instead of `ManagedSubscribe` (beta): with plain `Subscribe` the replay
   store is the client's responsibility, which is exactly the part worth showing.
 - **One worker thread.** gRPC calls `onNext` on its network thread, which must not block; everything goes to
@@ -277,18 +281,60 @@ Verified:
 - Versions differ from the official sample's `pom.xml` on purpose (it has Java 11, grpc 1.64.0, protoc 3.25.3,
   Avro 1.11.0); this repo uses current releases: grpc 1.85.1, protobuf 3.25.9, Avro 1.12.2, WireMock 3.13.2.
 
+- **Load test against the live org** (2026-11-11, 12 rounds x 100 records every 5 min via `scripts/load-test.sh`,
+  1,200 events; see [Load test results](#load-test-results)): every record got a status, 0 duplicates, 0 errors;
+  it also found the silent-stream problem below, fixed by an idle watchdog.
+- **Integration user**: `returns-integration@...` (Salesforce Integration licence, profile *Minimum Access - API Only
+  Integrations*, permission set licence `SalesforceAPIIntegrationPsl`, permission set `Return_Sync_Integration`)
+  logs in with JWT and processed 1,000 of the load-test events; Salesforce shows it as *Last Modified By*.
+- **`apex` CI job** with the repository secrets: JWT login, `sf project deploy validate --test-level RunLocalTests`,
+  14/14 components, Apex tests 2/2 — green on every push to `main`.
+
 **Not verified yet:**
 
-- **Memory under sustained load is not measured.** Data points so far: 150 MiB idle in the CI container
-  (`docker stats`), 233 MiB working set (peak 292 MiB) on Windows during the live run — the Windows figure counts
-  shared mapped files and is not comparable to `docker stats`. The one-hour `docker stats` number is still to be
-  filled in ([LOAD_TEST.md](docs/LOAD_TEST.md)).
-- The live run used the **admin** as the integration user (pre-authorized through the System Administrator
-  profile); the least-privilege integration user (ORG_SETUP §4) is not set up yet.
+- **Container memory with a live org.** The live runs were `java -jar` on Windows (no Docker on that machine):
+  peak working set 250 MiB, Java heap used at most 71 MiB of 269 MiB. Inside the 384 MB container the only figure
+  is idle without an org (150 MiB, CI). A one-hour `docker stats` run with a live org is still to do
+  (`scripts/measure-memory.sh`, [LOAD_TEST.md](docs/LOAD_TEST.md)).
 - Graceful shutdown was checked in the CI container (0.4 s), not in the live run (Windows had no SIGTERM).
-- The `apex` CI job is still skipped (no org secrets in the repository yet).
 - Spring Boot support dates (4.0.x OSS until 2026-12-31, 4.1.x until 2027-07-31) come from a third-party review
   (AceMQ, compared with spring.io on 2026-10-22), not from spring.io directly.
+
+## Load test results
+
+Live Developer Edition, 2026-11-11. `scripts/load-test.sh`: 12 rounds, each one anonymous-Apex insert of 100
+`Return_Request__c` (two `EventBus.publish` calls of up to 200), every 5 minutes, 1,200 events in total. Service:
+`java -jar` with the image's JVM flags (`-Xmx269m` = 70% of 384 MB, SerialGC), local PostgreSQL 17.11.
+
+| Metric | Value |
+|---|---|
+| Records that got a status | **1,200 / 1,200** (900 `Approved`, 300 `Manual_Review`, 0 left `New`) |
+| Duplicates processed | **0** (`processed_returns`: 1,205 rows = 1,205 distinct External IDs) |
+| Errors / retries / dead letters from the run | **0** (the one `dead_letters` row is the earlier deliberate 404 test) |
+| Throughput, one worker, one REST PATCH per event | **3.4 events/s** (1,000-event backlog drained in 4 min 55 s) |
+| End-to-end latency, burst of 100 (insert → status in Salesforce) | min 1.3 s, **p50 18.9 s, p95 33.7 s**, max 35.3 s (200 events, rounds 1–2) |
+| Single event, no queue | ~1–3 s |
+| Memory (Windows working set) | peak **250 MiB**; heap used ≤ 71 MiB of 269 MiB; 23–36 threads |
+| API requests used | ~1,300 of 15,000 / 24 h (one PATCH per event + CLI calls) |
+
+Latency under a burst is queueing: events are processed one by one in replay order, ~0.3 s per REST call, so the
+100th event of a burst waits ~30 s. The obvious next step is one sObject Collections upsert per batch (up to 200
+records per call), which would also cut API usage ~25x at `batch-size` 25.
+
+The memory "committed" by the JVM (Native Memory Tracking, ~370 MiB) is not usage: on a 16 GB Windows host the
+default initial heap is 1/64 of RAM (~256 MB) and is reserved up front; inside the 384 MB container it is ~6 MB.
+
+### Found by the load test: a silent dead stream
+
+After rounds 1–2 the service received **nothing** for 47 minutes: no events, no keepalives, no error, no
+`onCompleted`; a thread dump showed the worker idle and the gRPC threads waiting. 1,000 records stayed `New`. The
+connection had died without a reset, and nothing in gRPC tells the client about that by default.
+
+Fix: an idle watchdog in `PubSubSubscriber`. While events are requested the server answers at least every 270 s
+(a keepalive if nothing else), so no `FetchResponse` for `salesforce.stream-idle-timeout` (default 300 s) means a
+dead stream: cancel, resubscribe from the stored replay ID. Covered by `silentStreamIsRestartedByTheIdleWatchdog`
+and `keepalivesKeepTheWatchdogQuiet`. After the fix the service resumed with `CUSTOM` and drained the whole
+backlog with no duplicates. Nothing was lost: the events waited on the bus (72 h retention).
 
 ## Measured
 
@@ -296,25 +342,20 @@ Verified:
 |---|---|---|
 | Memory, idle, no org (reconnect loop) | **150.2 MiB / 384 MiB (39%)**; Postgres 35.9 MiB / 256 MiB | CI `docker-smoke`, `docker stats --no-stream` after 90 s, GitHub `ubuntu-latest`, 2026-11-10 |
 | Graceful stop (`docker compose stop`) | 0.4 s | same CI run |
-| Memory, live org, ~1 min after start (Windows `java -jar`) | working set 233 MiB, peak 292 MiB, 36 threads | `Get-Process`; not comparable with `docker stats` |
-| Memory after 1 h with a live org, under load | ___ MiB | `scripts/measure-memory.sh` — *fill in after the load run* |
-| End-to-end latency (record insert → status in Salesforce) | ~1–3 s per record (2 records) | `CreatedDate` (1 s resolution) vs `processed_at`, live org, 2026-11-11 |
+| Memory, live org, 1 h load + backlog drain (Windows `java -jar`) | working set peak 250 MiB, heap used ≤ 71 MiB | sampled every 10–60 s; not comparable with `docker stats` |
+| Memory, live org, 1 h, in the container | ___ MiB | `scripts/measure-memory.sh` — *needs Docker* |
+| Throughput | 3.4 events/s | 1,000-event backlog, live org |
+| End-to-end latency | ~1–3 s single; p50 18.9 s / p95 33.7 s in a burst of 100 | `CreatedDate` vs `processed_at` |
 
 ## Next steps
 
-Each open item from [What is verified and what is not](#what-is-verified-and-what-is-not) has a prepared path;
-all of them need a free Developer Edition org that you create yourself.
+| Open item | How to close it |
+|---|---|
+| Container memory with a live org | run `docker compose up` + `scripts/measure-memory.sh` + `scripts/load-test.sh` on a machine with Docker ([LOAD_TEST.md](docs/LOAD_TEST.md)) |
+| Burst latency (p95 34 s per 100 events) | batch the status updates: one sObject Collections upsert per `FetchResponse` |
+| Graceful stop with a live org | `docker compose stop -t 30 service` during a run ([ORG_SETUP 8.6](docs/ORG_SETUP.md#8-first-run-checklist)) |
 
-| Open item | How to close it | Evidence to put here |
-|---|---|---|
-| ~~Apex not compiled~~ — done 2026-11-10 | [ORG_SETUP §2](docs/ORG_SETUP.md#2-deploy-the-metadata-and-run-the-apex-tests) | 2/2 pass, 91% coverage (see *Verified*) |
-| `apex` CI job skipped | [ORG_SETUP §9](docs/ORG_SETUP.md#9-github-secrets-for-the-apex-ci-job): three repository secrets | green `apex` job |
-| ~~No live-org run~~ — done 2026-11-11 | [ORG_SETUP §3–8](docs/ORG_SETUP.md#3-key-and-certificate-for-jwt) | see *Verified* |
-| Admin used as integration user | [ORG_SETUP §4](docs/ORG_SETUP.md#4-integration-user): Salesforce Integration licence user, then change `SF_USERNAME` | first-run checklist 8.2 passes as that user |
-| Memory under load not measured | [LOAD_TEST.md](docs/LOAD_TEST.md): `scripts/measure-memory.sh` for 1 h while `scripts/load-test.sh` sends ~1,200 events (sized for DE limits) | the table row the script prints, in *Measured* |
-
-After that (v2 ideas, not needed for the interview story): the in-process subscriber test against a recorded
-real schema, a metric for replay lag, `ManagedSubscribe` once it is GA.
+v2 ideas, not needed for the interview story: a metric for replay lag, `ManagedSubscribe` once it is GA.
 
 ## CI secrets (optional)
 

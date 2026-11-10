@@ -5,9 +5,9 @@ compilation, and memory under load. Everything below is done by you, in your own
 Nothing here needs a paid licence.
 
 > UI labels in Setup change between releases. If a label below doesn't match, search for it in Setup's
-> Quick Find. Run against a live Developer Edition (Winter '27, API 68.0, 2026-11-10/11): steps 1–3, 5–8 with
-> option B (admin as the integration user). Not run yet: step 4 option A (integration user), 8.6 (graceful stop;
-> checked in CI instead), 9 (CI secrets). Please report what differs.
+> Quick Find. Run against a live Developer Edition (Winter '27, API 68.0, 2026-11-10/11): steps 1–9, first with
+> option B (admin), then step 4 option A (integration user) — the `ApiEnabled` permission did not block the
+> assignment. Not run live: 8.6 graceful stop (checked in the CI container instead). Please report what differs.
 >
 > `sf org login web` could not open a browser from a sandboxed terminal and timed out after ~60 s. If that
 > happens: set `SF_WEB_OAUTH_SERVER_TIMEOUT=1800000` (ms) and open the login page yourself. If you are already
@@ -134,7 +134,7 @@ sf org assign permsetlicense --target-org returns-dev --name SalesforceAPIIntegr
 sf org assign permset --target-org returns-dev --name Return_Sync_Integration --on-behalf-of <integration-username>
 ```
 
-   If the assignment is refused because of the `ApiEnabled` user permission (API-only users already have API
+   (Live run: both assignments went through as is.) If the assignment is refused because of the `ApiEnabled` user permission (API-only users already have API
    access), remove the `<userPermissions>` block from
    `salesforce/force-app/main/default/permissionsets/Return_Sync_Integration.permissionset-meta.xml`, deploy
    again, assign again, and open an issue so the repo gets fixed.
@@ -338,7 +338,9 @@ gh secret set SF_USERNAME --repo a-kamalov781/sf-returns-sync-java
 gh secret set SF_JWT_KEY --repo a-kamalov781/sf-returns-sync-java < secrets/sf_jwt_key.pem
 ```
 
-`SF_USERNAME` here is the admin username. Then push a commit to `main` or re-run the latest run
+`SF_USERNAME` here is the admin username (with the integration user the job fails in `deploy validate` with
+`sObject type 'Organization' is not supported` — seen live). If the GitHub form drops the `BEGIN/END` lines of
+the key on paste, the job re-adds them. Then push a commit to `main` or re-run the latest run
 (`gh run rerun <run-id> --repo a-kamalov781/sf-returns-sync-java`). Expected: job `apex` → step *Validate deploy
 with local Apex tests* is green. Validation doesn't change the org.
 

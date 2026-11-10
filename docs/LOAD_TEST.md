@@ -4,7 +4,9 @@ Goal: one hour of steady event traffic from a live Developer Edition org, and th
 for the README *Measured* table. Prerequisite: [ORG_SETUP.md](ORG_SETUP.md) steps 1–8 pass, and the user running
 the script has the `Return_Request_Manager` permission set (otherwise the anonymous Apex fails to compile with
 *Field does not exist*). `load-test.apex` and `load-test-cleanup.apex` were run once in a live Developer Edition
-(1 record in, 1 deleted); the full one-hour run has not been done yet.
+(1 record in, 1 deleted). The full one-hour run was done on 2026-11-11 with `java -jar` instead of Docker:
+results in the README, [Load test results](../README.md#load-test-results). What is still missing is the same run
+inside the container, which is what `scripts/measure-memory.sh` measures.
 
 ## Budget: Developer Edition limits
 

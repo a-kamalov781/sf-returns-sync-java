@@ -39,6 +39,7 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -75,6 +76,7 @@ class PubSubSubscriberTest {
     private final SalesforceToken token = new SalesforceToken("tok-1", "https://acme.my.salesforce.com", "00D5g000000AbCdEAK");
 
     private Server server;
+    private String channelName;
     private PubSubSubscriber subscriber;
 
     @BeforeEach
@@ -94,11 +96,16 @@ class PubSubSubscriberTest {
         when(tokens.peek()).thenReturn(token);
         when(store.loadReplayId(TOPIC)).thenReturn(Optional.empty());
 
+        channelName = name;
+        subscriber = newSubscriber(Duration.ofMinutes(1));
+    }
+
+    private PubSubSubscriber newSubscriber(Duration idleTimeout) {
         SalesforceProperties props = new SalesforceProperties("https://login.salesforce.com",
                 "https://login.salesforce.com", "id", "user", Path.of("unused.pem"), "68.0",
                 "unused", 0, TOPIC, BATCH);
-        subscriber = new PubSubSubscriber(props, tokens, processor, store,
-                () -> InProcessChannelBuilder.forName(name).directExecutor().build(), 10);
+        return new PubSubSubscriber(props, tokens, processor, store,
+                () -> InProcessChannelBuilder.forName(channelName).directExecutor().build(), 10, idleTimeout);
     }
 
     @AfterEach
@@ -241,6 +248,36 @@ class PubSubSubscriberTest {
         assertThat(resubscribe.getReplayPreset()).isEqualTo(ReplayPreset.CUSTOM);
         assertThat(resubscribe.getReplayId()).isEqualTo(saved);
         assertThat(fake.subscribeCalls).isEqualTo(2);
+    }
+
+    @Test
+    void silentStreamIsRestartedByTheIdleWatchdog() throws Exception {
+        // Live finding: a half-open connection delivered nothing, no error, no onCompleted, for 47 minutes.
+        subscriber.stop();                                       // the default one was never started
+        subscriber = newSubscriber(Duration.ofMillis(300));
+        ByteString stored = ByteString.copyFromUtf8("last-saved");
+        when(store.loadReplayId(TOPIC)).thenReturn(Optional.of(stored));
+        subscriber.start();
+        nextRequest();                                           // server now stays silent
+
+        FetchRequest resubscribe = nextRequest();
+        assertThat(resubscribe.getReplayPreset()).isEqualTo(ReplayPreset.CUSTOM);
+        assertThat(resubscribe.getReplayId()).isEqualTo(stored);
+        assertThat(fake.subscribeCalls).isGreaterThanOrEqualTo(2);
+    }
+
+    @Test
+    void keepalivesKeepTheWatchdogQuiet() throws Exception {
+        subscriber.stop();                                       // the default one was never started
+        subscriber = newSubscriber(Duration.ofMillis(400));
+        subscriber.start();
+        nextRequest();
+        for (int i = 0; i < 6; i++) {                            // 6 x 150 ms = 900 ms > idle timeout
+            fake.stream().onNext(FetchResponse.newBuilder().setLatestReplayId(ByteString.copyFromUtf8("k" + i))
+                    .setPendingNumRequested(BATCH).build());
+            Thread.sleep(150);
+        }
+        assertThat(fake.subscribeCalls).isEqualTo(1);
     }
 
     @Test

@@ -26,10 +26,12 @@ import org.apache.avro.io.DecoderFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -67,6 +69,7 @@ public class PubSubSubscriber implements SmartLifecycle {
     private final ReturnStore store;
     private final Supplier<ManagedChannel> channelFactory;
     private final long baseReconnectDelayMs;
+    private final Duration idleTimeout;
 
     private final ScheduledExecutorService worker = newWorker();
     private final Map<String, Schema> schemaCache = new ConcurrentHashMap<>();
@@ -80,27 +83,32 @@ public class PubSubSubscriber implements SmartLifecycle {
     private long generation;
     private int attempt;
     private boolean forceEarliest;
+    private boolean streamOpen;
+    private long lastResponseNanos;
     private volatile boolean running;
 
     @Autowired
     public PubSubSubscriber(SalesforceProperties props, JwtBearerTokenService tokens,
-                            ReturnProcessor processor, ReturnStore store) {
+                            ReturnProcessor processor, ReturnStore store,
+                            @Value("${salesforce.stream-idle-timeout:300s}") Duration idleTimeout) {
         this(props, tokens, processor, store,
                 () -> ManagedChannelBuilder.forAddress(props.pubsubHost(), props.pubsubPort())
                         .useTransportSecurity()                       // TLS
                         .build(),
-                1_000);
+                1_000, idleTimeout);
     }
 
-    /** For tests: an in-process channel instead of host/port, and a short reconnect delay. */
+    /** For tests: an in-process channel instead of host/port, short reconnect delay and idle timeout. */
     PubSubSubscriber(SalesforceProperties props, JwtBearerTokenService tokens, ReturnProcessor processor,
-                     ReturnStore store, Supplier<ManagedChannel> channelFactory, long baseReconnectDelayMs) {
+                     ReturnStore store, Supplier<ManagedChannel> channelFactory, long baseReconnectDelayMs,
+                     Duration idleTimeout) {
         this.props = props;
         this.tokens = tokens;
         this.processor = processor;
         this.store = store;
         this.channelFactory = channelFactory;
         this.baseReconnectDelayMs = baseReconnectDelayMs;
+        this.idleTimeout = idleTimeout;
     }
 
     @Override
@@ -111,6 +119,29 @@ public class PubSubSubscriber implements SmartLifecycle {
         blockingStub = PubSubGrpc.newBlockingStub(channel).withCallCredentials(creds);
         running = true;
         post(this::subscribe);
+        long checkEveryMs = Math.max(50, Math.min(30_000, idleTimeout.toMillis() / 3));
+        try {
+            worker.scheduleWithFixedDelay(this::checkIdle, checkEveryMs, checkEveryMs, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException e) {
+            log.debug("Worker stopped, no idle watchdog");
+        }
+    }
+
+    /**
+     * Watchdog. While the client has requested events, the server answers at least every 270 s (a keepalive
+     * if nothing else). Silence for longer means the connection is dead without anyone being told: found in
+     * the live load test, where a half-open TCP connection stopped all delivery with no error and no
+     * onCompleted. Cancel and resubscribe from the stored replay ID.
+     */
+    private void checkIdle() {
+        if (!running || !streamOpen) return;
+        long idleMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - lastResponseNanos);
+        if (idleMs > idleTimeout.toMillis()) {
+            log.warn("No FetchResponse for {} s (keepalives come at least every 270 s): restarting stream",
+                    idleMs / 1000);
+            cancelStream("idle");
+            reconnectLater();
+        }
     }
 
     /** Open a stream: CUSTOM from the stored replay ID, else LATEST (or EARLIEST after a replay ID error). */
@@ -132,6 +163,8 @@ public class PubSubSubscriber implements SmartLifecycle {
             }
             requestStream = asyncStub.subscribe(new ResponseObserver(gen));
             requestStream.onNext(first.build());
+            streamOpen = true;
+            lastResponseNanos = System.nanoTime();
             log.info("Subscribed to {} with preset {}", props.topic(), first.getReplayPreset());
         } catch (Exception e) {
             log.warn("Cannot open subscription", e);
@@ -150,6 +183,7 @@ public class PubSubSubscriber implements SmartLifecycle {
     }
 
     private void handle(FetchResponse response) {
+        lastResponseNanos = System.nanoTime();
         try {
             if (response.getEventsCount() == 0 && !response.getLatestReplayId().isEmpty()) {
                 // keepalive: store the fresh replay ID, as the Subscribe RPC docs recommend
@@ -213,6 +247,7 @@ public class PubSubSubscriber implements SmartLifecycle {
     private void reconnectLater() {
         if (!running) return;
         generation++;                                         // the old stream is not listened to anymore
+        streamOpen = false;
         long delayMs = reconnectDelayMs(baseReconnectDelayMs, attempt++);
         log.info("Reconnecting in {} ms", delayMs);
         try {

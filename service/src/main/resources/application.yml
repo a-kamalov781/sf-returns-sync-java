@@ -21,6 +21,7 @@ salesforce:
   pubsub-port: 7443
   topic: /event/Return_Requested__e
   batch-size: 25                        # <= 100 (num_requested limit)
+  stream-idle-timeout: 300s             # > 270 s keepalive interval: silence longer = dead stream, resubscribe
 
 returns:
   retry:
