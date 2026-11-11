@@ -710,6 +710,28 @@ describe('c-return-sync-status', () => {
             expect(calls()).toBe(4);
             expect(shown(element)).toEqual(['waiting']);
         });
+
+        it('does not let the old refresh rejecting free the slot of a newer one still out', async () => {
+            const stale = deferred();
+            notifyRecordUpdateAvailable.mockReturnValueOnce(stale.promise);
+            const element = mount();
+            getRecord.emit(newRecord(T0 - 55 * SECOND));
+            await flush();
+            await advanceSeconds(6);
+            expect(shown(element)).toEqual(['no-decision']);
+
+            await click(element);
+            expect(calls()).toBe(2);
+            notifyRecordUpdateAvailable.mockReturnValueOnce(new Promise(() => {}));
+            await advanceSeconds(2);
+            expect(calls()).toBe(3);
+
+            stale.reject({ body: { message: 'Network failure' } });
+            await flush();
+            await advanceSeconds(6);
+            expect(calls()).toBe(3);
+            expect(shown(element)).toEqual(['waiting']);
+        });
     });
 
     describe('Button while refreshing', () => {
