@@ -26,7 +26,7 @@ Run these and keep them green. Each one was checked on a clean tree.
 |---|---|---|
 | Java build, unit + integration tests | `cd service && ./mvnw -B verify` | `BUILD SUCCESS`; 44 unit tests; the 5 `*IT` tests skip without Docker |
 | Salesforce metadata compiles, Apex tests pass (changes nothing in the org) | `cd salesforce && sf project deploy validate --source-dir force-app --target-org returns-dev --test-level RunLocalTests --wait 20` | `Status: Succeeded`, all Apex tests passing; the deploy lists only the `returnSyncStatus` bundle's `.html`, `.js` and `.js-meta.xml` |
-| LWC unit tests (no org needed) | `cd salesforce && npm ci && npm run test:unit` | 61 tests pass |
+| LWC unit tests (no org needed) | `cd salesforce && npm ci && npm run test:unit` | 62 tests pass |
 | Shell scripts parse | `for f in scripts/*.sh; do bash -n "$f"; done` | no output |
 
 CI (`.github/workflows/ci.yml`) runs the same checks on every push to `main` and on pull requests: `service`

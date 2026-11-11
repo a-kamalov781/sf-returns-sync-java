@@ -245,7 +245,7 @@ Tests: `cd service && ./mvnw verify` (Testcontainers integration tests need Dock
 | `WiringTest` | Boot 4 exposes the Jackson 3 `tools.jackson.databind.json.JsonMapper` bean; `batch-size > 100` rejected | — |
 | `ReturnStoreIT` (Testcontainers PostgreSQL 17) | full Spring context with Flyway, `ON CONFLICT DO NOTHING`, replay ID bytes round-trip unchanged, dead letter + replay in one call | Docker |
 | `ReturnRequestTriggerHandlerTest` (Apex) | 200 records in bulk → 200 events, defaults assigned | an org (CI job `apex`, needs secrets) |
-| `returnSyncStatus.test.js` (LWC Jest, 61 tests) | the record-page component's rendering and behaviour against local stubs | Node range in `salesforce/package.json` (`engines`); no org (CI job `lwc`) |
+| `returnSyncStatus.test.js` (LWC Jest) | the record-page component's rendering and behaviour against local stubs | Node range in `salesforce/package.json` (`engines`); no org (CI job `lwc`) |
 | CI `docker-smoke` | image builds, compose stack starts, Flyway migrates real Postgres, service stays up (no org: reconnect loop), not OOM-killed under 384 MB, graceful stop | Docker |
 
 ## What a Java reviewer will check
