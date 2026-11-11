@@ -653,6 +653,7 @@ describe('c-return-sync-status', () => {
 
             await advanceSeconds(1);
             expect(text(element, 'waiting')).toContain('about 19 s');
+            expect(calls()).toBe(1);
             await advanceSeconds(1);
             expect(calls()).toBe(2);
         });
