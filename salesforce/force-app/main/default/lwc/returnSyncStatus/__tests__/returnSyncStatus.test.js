@@ -704,6 +704,8 @@ describe('c-return-sync-status', () => {
     describe('Refresh settles after the deadline', () => {
         it('resolve run: stays in No decision yet with no further calls', async () => {
             const { element, pending } = await hangPastDeadline();
+            // The unanswered refresh's bound must not outlive the clock that started it.
+            expect(jest.getTimerCount()).toBe(0);
 
             pending.resolve();
             await flush();
@@ -858,6 +860,38 @@ describe('c-return-sync-status', () => {
             await advanceSeconds(1);
             expect(text(element, 'waiting')).toContain('about 23 s');
             await advanceSeconds(1);
+            expect(calls()).toBe(2);
+        });
+    });
+
+    describe('Disconnect while a clock refresh never answers', () => {
+        // The abandoned refresh's bound must not fire on the detached component, nor shorten the new one's 10 s.
+        it('gives the refresh made after re-attaching its own full 10 s', async () => {
+            notifyRecordUpdateAvailable.mockReturnValueOnce(new Promise(() => {})).mockReturnValueOnce(new Promise(() => {}));
+            const element = mount();
+            getRecord.emit(newRecord(T0 - 10 * SECOND));
+            await flush();
+            await advanceSeconds(2);
+            expect(calls()).toBe(1);
+
+            await advanceSeconds(1);
+            document.body.removeChild(element);
+            expect(jest.getTimerCount()).toBe(0);
+            await advanceSeconds(10);
+            expect(calls()).toBe(1);
+
+            document.body.appendChild(element);
+            await flush();
+            expect(shown(element)).toEqual(['waiting']);
+            await advanceSeconds(2);
+            expect(calls()).toBe(2);
+            expect(shown(element)).toEqual(['waiting']);
+
+            await advanceSeconds(9);
+            expect(shown(element)).toEqual(['waiting']);
+            await advanceSeconds(1);
+            expect(shown(element)).toEqual(['error']);
+            expect(text(element, 'error')).toContain('the refresh did not answer.');
             expect(calls()).toBe(2);
         });
     });
