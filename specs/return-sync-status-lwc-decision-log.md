@@ -31,3 +31,12 @@ measure, and the deliverables. The interview asked nothing further.
   as the second-user check was cut in round 1. Origin: User.
 - **The time measure is the user's.** Decision 2 was tagged speccy, user-agreed; the creation-to-last-modified
   measure came with the request (see Seed). Retagged User; "who = last-modified user" stays speccy, user-agreed.
+- **Plan approved at review; three plan decisions ratified.** The one-clock design with per-request generation
+  numbers, the derived (not stored) state, and the page built from the highlights panel, the component and the
+  layout-driven detail panel were proposed by speccy and hardened over three plan-critique rounds (round 1:
+  recovery from Error and the blank pre-load state; round 2: stale requests overwriting the button's result;
+  round 3: nothing restarted the clock after an error or a reconnect). The user approved them as planned.
+  Origin: speccy, user-agreed.
+- **The live checks start the local service from the newest event.** Its stored replay position predated a
+  1,200-event load run, so a restart would have replayed that backlog against the daily event allowance. The
+  user chose clearing the position over draining it. Origin: User.
