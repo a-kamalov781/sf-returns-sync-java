@@ -22,3 +22,12 @@ measure, and the deliverables. The interview asked nothing further.
   "wait again" would end at once, so the button could never wait. Decided: the first wait and the elapsed time
   count from creation; a second wait lasts 60 s from the click. Origin: speccy, user-agreed (the user took all
   round-2 findings).
+- **Error is no longer a dead end.** Proposed: a refresh that fails while waiting shows Error and stops the timer,
+  with no way back short of a reload (Decision 6, speccy, proposed). Round-3 critique: one failed request, most
+  likely on a phone, ends the wait for that page view. Decided: Error keeps stopping the timer and gains the same
+  "check again" button as No decision yet. Origin: speccy, user-agreed.
+- **The phone check stays, run by the user.** Round-3 critique: the build cannot open the Salesforce mobile app.
+  Decided: the criterion stays and the user runs it on their own phone after the deploy, rather than cutting it
+  as the second-user check was cut in round 1. Origin: User.
+- **The time measure is the user's.** Decision 2 was tagged speccy, user-agreed; the creation-to-last-modified
+  measure came with the request (see Seed). Retagged User; "who = last-modified user" stays speccy, user-agreed.

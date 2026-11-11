@@ -27,9 +27,12 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
   - **No decision yet**: the status is still `New` more than 60 s after creation (the waiting limit); says the
     sync service may be down and offers a button that checks once more and, if still `New`, waits 60 s more
     from the click.
-  - **Error**: the record cannot be read, or a refresh fails while waiting; shows the platform's error message.
-- A Lightning record page for `Return_Request__c` with the component and the record's fields, with `Status__c`
-  read-only as on the current layout. It is the org default on desktop and phone.
+  - **Error**: the record cannot be read, or a refresh fails while waiting; shows the platform's error message
+    and the same check-again button. If the read then succeeds and the status is decided, the component shows
+    Decided; if it is still `New`, it waits 60 s from the click.
+- A Lightning record page for `Return_Request__c` with the component, the record's fields and the header and
+  actions of the current page, with `Status__c` read-only as on the current layout. It is the org default on
+  desktop and phone.
 - AGENTS.md's Verification table and CI line list the component test command and its expected result.
 
 ## Scope boundaries
@@ -39,6 +42,7 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
 - No decision timestamp or "decided by" field.
 - No history of status changes; the component shows the current status only.
 - The component is not offered for other objects or on list views, utility bars or the home page.
+- Salesforce Classic is not supported.
 
 ## Constraints
 
@@ -57,8 +61,9 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
 - [ ] With the Java service stopped, a new record shows "No decision yet" once the limit passes, and the button
       shows the decision after the service is started again.
 - [ ] The component's unit tests run without an org, pass locally and in the CI workflow, and cover all four
-      states and the stop conditions.
-- [ ] On a phone (the Salesforce mobile app), the record page shows the component and the record's fields.
+      states, the check-again button and the stop conditions.
+- [ ] On the user's own phone, in the Salesforce mobile app after the deploy, the record page shows the
+      component, the record's fields, and the header and actions.
 
 ## Decisions & rationale
 
@@ -72,15 +77,15 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
   that cost is bounded here by the 60 s limit and the stop conditions, and those refreshes do not count
   against the daily API allowance.
   **Origin**: speccy, user-agreed.
-- **Decision**: measure "how long it took" as last-modified time minus creation time, and "who" as the
-  last-modified user.
+- **Decision**: measure "how long it took" as last-modified time minus creation time (it came with the request),
+  and "who" as the last-modified user (speccy, user-agreed).
   **Alternatives**: add a decision timestamp and decider field written by the Java service; read field
   history.
   **Why**: last-modified needs no extra read and no extra metadata. The status is read-only on the layout, so
   the last modification is the decision in normal use; the edit-after-decision case is under Assumptions. Field
   history is exact but needs a second data source beside the record read, and the service-written fields need a
   change to the service.
-  **Origin**: speccy, user-agreed.
+  **Origin**: User for the time measure; speccy, user-agreed for "who".
 - **Decision**: a waiting limit of 60 s with a manual "check again".
   **Alternatives**: keep waiting until the user leaves; no limit with a slower interval.
   **Why**: the service normally answers in about 1–3 s, so a minute separates "slow" from "down", and an
@@ -100,16 +105,18 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
   or profile assignment covers only the apps or profiles it names, and desktop only leaves phone users without
   the status.
   **Origin**: speccy, proposed.
-- **Decision**: a refresh that fails while waiting shows Error and stops the timer.
-  **Alternatives**: keep waiting and polling through the failure.
-  **Why**: the Error state is the one place the user learns why nothing changes.
-  **Origin**: speccy, proposed.
+- **Decision**: a refresh that fails while waiting shows Error with a check-again button and stops the timer.
+  **Alternatives**: keep polling through the failure; Error with no way back.
+  **Why**: polling through a failure leaves the user with no explanation of why nothing changes. Error with no
+  way back ends the wait for that page view and forces a reload, which is what the component exists to remove,
+  and a single failed request is most likely on a phone.
+  **Origin**: speccy, user-agreed.
 
 ## Assumptions
 
 - A record's amount or order number is rarely edited after the decision. When it is, the decided state shows
   that later edit's user and time.
-- Users open records in Lightning Experience; Salesforce Classic is not supported.
+- Users open records in Lightning Experience or the Salesforce mobile app.
 
 ## Open questions
 
