@@ -29,6 +29,7 @@ const NO_DECISION_TEXT = 'No decision yet. The sync service may be down.';
 const ERROR_PREFIX = 'Could not check the status:';
 const LOAD_ERROR_TEXT = 'could not load the record.';
 const UNKNOWN_ERROR_TEXT = 'unknown error.';
+const NO_ANSWER_TEXT = 'the refresh did not answer.';
 const CHECK_AGAIN_LABEL = 'Check again';
 
 function formatDuration(ms) {
@@ -86,6 +87,7 @@ export default class ReturnSyncStatus extends LightningElement {
     ticks = 0;
     loadBoundId;
     buttonBoundId;
+    clockBoundId;
 
     @wire(getRecord, { recordId: '$recordId', fields: FIELDS, optionalFields: OPTIONAL_FIELDS })
     wiredRecord({ data, error }) {
@@ -119,6 +121,7 @@ export default class ReturnSyncStatus extends LightningElement {
         this.bumpGeneration();
         this.clearLoadBound();
         this.clearButtonBound();
+        this.clearClockBound();
     }
 
     get status() {
@@ -197,6 +200,7 @@ export default class ReturnSyncStatus extends LightningElement {
         const clickedAt = Date.now();
         // Supersedes a clock refresh still out instead of waiting behind it, which could hang on a phone.
         this.bumpGeneration();
+        this.clearClockBound();
         this.clearButtonBound();
         this.buttonBoundId = setTimeout(() => this.handleButtonBound(), BOUND_MS);
         this.refresh(true, clickedAt);
@@ -218,6 +222,18 @@ export default class ReturnSyncStatus extends LightningElement {
         }
     }
 
+    handleClockBound() {
+        this.clockBoundId = undefined;
+        if (this.hasCurrentPending() && !this.pending.fromButton) {
+            // Without this a refresh that never answers would leave the clock waiting until the deadline and then report
+            // No decision yet, as if the service were at fault.
+            this.bumpGeneration();
+            this.pending = undefined;
+            this.errorText = NO_ANSWER_TEXT;
+            this.reconcile();
+        }
+    }
+
     tick() {
         this.reconcile();
         if (!this.intervalId) {
@@ -233,6 +249,9 @@ export default class ReturnSyncStatus extends LightningElement {
     refresh(fromButton, clickedAt) {
         const generation = this.generation;
         this.pending = { generation, fromButton };
+        if (!fromButton) {
+            this.clockBoundId = setTimeout(() => this.handleClockBound(), BOUND_MS);
+        }
         let request;
         try {
             request = notifyRecordUpdateAvailable([{ recordId: this.recordId }]);
@@ -255,6 +274,8 @@ export default class ReturnSyncStatus extends LightningElement {
         this.pending = undefined;
         if (fromButton) {
             this.clearButtonBound();
+        } else {
+            this.clearClockBound();
         }
         if (failed) {
             this.errorText = readErrorText(error);
@@ -292,6 +313,7 @@ export default class ReturnSyncStatus extends LightningElement {
         if (this.intervalId) {
             clearInterval(this.intervalId);
             this.intervalId = undefined;
+            this.clearClockBound();
             this.bumpGeneration();
         }
     }
@@ -308,6 +330,13 @@ export default class ReturnSyncStatus extends LightningElement {
         if (this.loadBoundId) {
             clearTimeout(this.loadBoundId);
             this.loadBoundId = undefined;
+        }
+    }
+
+    clearClockBound() {
+        if (this.clockBoundId) {
+            clearTimeout(this.clockBoundId);
+            this.clockBoundId = undefined;
         }
     }
 

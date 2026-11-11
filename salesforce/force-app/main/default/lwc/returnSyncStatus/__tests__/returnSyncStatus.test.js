@@ -781,6 +781,40 @@ describe('c-return-sync-status', () => {
         });
     });
 
+    describe('Clock refresh bound', () => {
+        it('shows Error with the check-again button 10 s after a refresh that never answers', async () => {
+            notifyRecordUpdateAvailable.mockReturnValueOnce(new Promise(() => {}));
+            const element = mount();
+            getRecord.emit(newRecord(T0 - 10 * SECOND));
+            await flush();
+
+            await advanceSeconds(2);
+            expect(calls()).toBe(1);
+            await advanceSeconds(9);
+            expect(shown(element)).toEqual(['waiting']);
+            await advanceSeconds(1);
+
+            expect(shown(element)).toEqual(['error']);
+            expect(text(element, 'error')).toContain('the refresh did not answer.');
+            expect(button(element)).not.toBeNull();
+            expect(button(element).disabled).toBeFalsy();
+            await advanceSeconds(60);
+            expect(shown(element)).toEqual(['error']);
+            expect(calls()).toBe(1);
+            expect(jest.getTimerCount()).toBe(0);
+        });
+
+        it('leaves no bound behind when the refresh answers', async () => {
+            mount();
+            getRecord.emit(newRecord(T0 - 10 * SECOND));
+            await flush();
+            await advanceSeconds(2);
+            expect(calls()).toBe(1);
+            // Only the clock interval remains.
+            expect(jest.getTimerCount()).toBe(1);
+        });
+    });
+
     describe('Button bound', () => {
         it('re-enables the button after 10 s with the state unchanged, and ignores the late result', async () => {
             const pending = deferred();
