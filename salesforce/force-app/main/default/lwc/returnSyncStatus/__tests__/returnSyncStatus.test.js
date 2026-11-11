@@ -905,6 +905,23 @@ describe('c-return-sync-status', () => {
         });
     });
 
+    describe('Disconnect while loading', () => {
+        // The first bound would otherwise still fire 10 s after the first mount.
+        it('clears the load bound, so a re-attached page gets its own full 10 s', async () => {
+            const element = mount();
+            await advanceSeconds(5);
+            expect(shown(element)).toEqual(['loading']);
+
+            document.body.removeChild(element);
+            expect(jest.getTimerCount()).toBe(0);
+
+            document.body.appendChild(element);
+            await flush();
+            await advanceSeconds(6);
+            expect(shown(element)).toEqual(['loading']);
+        });
+    });
+
     describe('Formatting', () => {
         it.each([
             [0, 'about 0 s'],
