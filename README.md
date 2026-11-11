@@ -78,7 +78,7 @@ sf-returns-sync-java/
 │       ├── triggers/ReturnRequestTrigger   thin trigger
 │       ├── classes/ReturnRequestTriggerHandler(+Test)   bulk test on 200 records
 │       ├── lwc/returnSyncStatus(+__tests__)             record-page component showing the sync status; Jest tests
-│       ├── flexipages/Return_Request_Record_Page        record page that places the component (not yet deployed to the org)
+│       ├── flexipages/Return_Request_Record_Page        record page that places the component
 │       └── permissionsets/   Return_Sync_Integration (service user), Return_Request_Manager (people)
 ├── service/                         Maven, Spring Boot 4.1, Java 25
 │   ├── src/main/proto/pubsub_api.proto      copy from forcedotcom/pub-sub-api (CC0), byte-identical
