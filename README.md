@@ -339,7 +339,8 @@ Verified:
   `LastModifiedDate`; a decided record made no record request in 60 s; a record past the 60 s limit opened in
   No decision yet, and "Check again" showed the decision once the service caught up. Each refresh fetches the
   record for every wire on the page (the component, the header and the detail panel), so one refresh is two to
-  three `RecordUi` requests; none count against the API allocation.
+  three `RecordUi` requests; none count against the API allocation. The page is also the default in the
+  Salesforce mobile app, but it was not opened on a phone.
 - A record read that fails with an HTTP error does not reach the component: Lightning retries it and
   `notifyRecordUpdateAvailable` resolves, so the page ends in No decision yet rather than Error. Error shows only
   when a refresh does not answer within 10 s or the platform reports the failure. Not checked on a phone.

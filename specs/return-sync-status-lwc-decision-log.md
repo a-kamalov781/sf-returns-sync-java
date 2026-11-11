@@ -63,3 +63,7 @@ measure, and the deliverables. The interview asked nothing further.
   or detect it by comparing the record's `lastModifiedDate`/`weakEtag` before and after a refresh (which cannot
   tell a silent failure from a still-`New` record that has not changed). Decided: amend the spec; "fails" now
   means the platform reports it or the refresh does not answer within 10 s. No code change. Origin: User.
+- **The phone check was skipped.** Round-3 critique had kept it as a check the user runs after the deploy (see
+  above). After the deploy, the user chose to skip it. The criterion stays in the spec, marked not run; the
+  phone page rests on the Small View override and the Small form factor in the component's metadata, neither
+  seen in the mobile app. Origin: User.

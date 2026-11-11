@@ -66,7 +66,8 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
 - [ ] The component's unit tests run without an org, pass locally and in the CI workflow, and cover all four
       states, the check-again button and the stop conditions.
 - [ ] On the user's own phone, in the Salesforce mobile app after the deploy, the record page shows the
-      component, the record's fields, and the header and actions.
+      component, the record's fields, and the header and actions. Not run: the user skipped it (see the
+      decision log).
 
 ## Decisions & rationale
 
