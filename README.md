@@ -215,7 +215,8 @@ Reference*, v68.0 (Winter '27):
 
 ## Run locally
 
-Prerequisites: a Developer Edition org, Salesforce CLI (`sf`), Docker, JDK 25 (only for running tests outside Docker).
+Prerequisites: a Developer Edition org, Salesforce CLI (`sf`), Docker, JDK 25 (only for running tests outside Docker), Node in the range of `engines` in `salesforce/package.json` (only for
+the LWC tests).
 The short version is below; [docs/ORG_SETUP.md](docs/ORG_SETUP.md) has every step, the key/certificate commands,
 a JWT login check with the CLI, a first-run checklist and troubleshooting.
 
@@ -233,6 +234,7 @@ a JWT login check with the CLI, a first-run checklist and troubleshooting.
 6. Create a `Return_Request__c` record and watch its `Status__c` change.
 
 Tests: `cd service && ./mvnw verify` (Testcontainers integration tests need Docker and are skipped without it).
+LWC tests: `cd salesforce && npm ci && npm run test:unit` (no org needed).
 
 ## Tests
 
