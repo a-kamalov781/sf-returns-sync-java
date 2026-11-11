@@ -71,19 +71,19 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
   Salesforce's LWC guidance advises against refreshing in a timer loop because it loads the server; that cost
   is bounded here by the 60 s limit and the stop conditions, at most about 30 refreshes per record view, and
   those refreshes do not count against the daily API allowance.
-  **Origin**: speccy, proposed.
+  **Origin**: speccy, user-agreed.
 - **Decision**: measure "how long it took" as last-modified time minus creation time, and "who" as the
   last-modified user.
   **Alternatives**: add a decision timestamp and decider field written by the Java service; read field
   history.
   **Why**: both alternatives change the service or the object's configuration for a display, and the
   record's status is read-only on the layout, so the last modification is the decision in normal use.
-  **Origin**: speccy, proposed.
+  **Origin**: speccy, user-agreed.
 - **Decision**: a waiting limit of 60 s with a manual "check again".
   **Alternatives**: keep waiting until the user leaves; no limit with a slower interval.
   **Why**: the service normally answers in 1–6 s, so a minute separates "slow" from "down", and an
   open tab must not keep calling forever.
-  **Origin**: speccy, proposed.
+  **Origin**: speccy, user-agreed.
 
 ## Assumptions
 
