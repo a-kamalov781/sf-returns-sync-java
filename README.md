@@ -31,7 +31,7 @@ the integration user — the service was running in a Docker container on GitHub
 - **Proof, on a live Salesforce Developer Edition.** 1,200 events under load: 1,200 statuses, **0 duplicates,
   0 errors**; every record of a burst of 100 has its status within **2–6 s** (p95); the Docker container peaked
   at **183 MiB of its 384 MiB** limit during an hour of load ([Load test results](#load-test-results)). CI runs
-  the tests, starts the Docker image and validates the Apex code against the org on every push.
+  the tests (Java and LWC Jest), starts the Docker image and validates the Apex code against the org on every push.
 - **Stack.** Java 25 · Spring Boot 4.1 · gRPC + Avro (Salesforce Pub/Sub API) · PostgreSQL + Flyway · Docker ·
   GitHub Actions · Apex / SFDX · JUnit 5, Mockito, Testcontainers, WireMock.
 
@@ -70,11 +70,15 @@ flowchart LR
 ```
 sf-returns-sync-java/
 ├── salesforce/                      SFDX project
+│   ├── package.json, jest.config.js         Jest tooling for the LWC tests (needs Node 22.12+)
+│   ├── .forceignore                         keeps `__tests__` and local editor/lint config out of deploys
 │   └── force-app/main/default/
 │       ├── objects/Return_Request__c/      External_Id__c (External ID, unique), Status__c, Order_Number__c, Amount__c
 │       ├── objects/Return_Requested__e/    HighVolume, PublishAfterCommit
 │       ├── triggers/ReturnRequestTrigger   thin trigger
 │       ├── classes/ReturnRequestTriggerHandler(+Test)   bulk test on 200 records
+│       ├── lwc/returnSyncStatus(+__tests__)             record-page component showing the sync status; Jest tests
+│       ├── flexipages/Return_Request_Record_Page        record page that places the component (not yet deployed to the org)
 │       └── permissionsets/   Return_Sync_Integration (service user), Return_Request_Manager (people)
 ├── service/                         Maven, Spring Boot 4.1, Java 25
 │   ├── src/main/proto/pubsub_api.proto      copy from forcedotcom/pub-sub-api (CC0), byte-identical
@@ -88,7 +92,7 @@ sf-returns-sync-java/
 ├── docs/ORG_SETUP.md, docs/LOAD_TEST.md   live-org setup, first-run checklist, load test
 ├── scripts/                         load-test.sh + load-test.apex, load-test-cleanup.apex, measure-memory.sh
 ├── docker-compose.yml               postgres:17-alpine + service (mem_limit 384m)
-└── .github/workflows/ci.yml         mvn verify, docker smoke run, Apex validation
+└── .github/workflows/ci.yml         mvn verify, docker smoke run, LWC Jest tests, Apex validation
 ```
 
 No `interface` + `Impl`, no mappers, no DTO layers: nine production classes in five packages.
@@ -241,6 +245,7 @@ Tests: `cd service && ./mvnw verify` (Testcontainers integration tests need Dock
 | `WiringTest` | Boot 4 exposes the Jackson 3 `tools.jackson.databind.json.JsonMapper` bean; `batch-size > 100` rejected | — |
 | `ReturnStoreIT` (Testcontainers PostgreSQL 17) | full Spring context with Flyway, `ON CONFLICT DO NOTHING`, replay ID bytes round-trip unchanged, dead letter + replay in one call | Docker |
 | `ReturnRequestTriggerHandlerTest` (Apex) | 200 records in bulk → 200 events, defaults assigned | an org (CI job `apex`, needs secrets) |
+| `returnSyncStatus.test.js` (LWC Jest, 49 tests) | the record-page component's rendering and behaviour against local stubs | Node 22.12+; no org (CI job `lwc`; the job has not run on GitHub yet) |
 | CI `docker-smoke` | image builds, compose stack starts, Flyway migrates real Postgres, service stays up (no org: reconnect loop), not OOM-killed under 384 MB, graceful stop | Docker |
 
 ## What a Java reviewer will check
