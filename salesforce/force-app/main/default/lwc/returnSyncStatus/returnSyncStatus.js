@@ -272,7 +272,7 @@ export default class ReturnSyncStatus extends LightningElement {
         this.now = Date.now();
         const waiting = this.connected && this.state === WAITING;
         if (waiting && !this.intervalId) {
-            this.ticks = 0;
+            // ticks is already 0: every stop goes through stopClock, and bumpGeneration owns the reset.
             this.intervalId = setInterval(() => this.tick(), TICK_MS);
         } else if (!waiting && this.intervalId) {
             this.stopClock();
