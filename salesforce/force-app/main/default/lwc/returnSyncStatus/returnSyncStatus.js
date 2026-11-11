@@ -162,6 +162,10 @@ export default class ReturnSyncStatus extends LightningElement {
         return this.state === WAITING;
     }
 
+    get isNoDecision() {
+        return this.state === NO_DECISION;
+    }
+
     get showButton() {
         const state = this.state;
         return state === NO_DECISION || state === ERROR;

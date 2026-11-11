@@ -114,6 +114,29 @@ describe('c-return-sync-status', () => {
         ]);
     });
 
+    describe('Announcements', () => {
+        const live = (element, id) => block(element, id).closest('[aria-live="polite"]');
+
+        it('announces the decided, no-decision and error lines but not the per-second waiting text', async () => {
+            const element = mount();
+            getRecord.emit(newRecord(T0 - 10 * SECOND));
+            await flush();
+            expect(live(element, 'waiting')).toBeNull();
+
+            await advanceSeconds(50);
+            expect(shown(element)).toEqual(['no-decision']);
+            expect(live(element, 'no-decision')).not.toBeNull();
+
+            getRecord.error({ message: 'Server unavailable' }, 500, 'Server Error');
+            await flush();
+            expect(live(element, 'error')).not.toBeNull();
+
+            getRecord.emit(decidedRecord(T0 - 60 * SECOND, T0 - 58 * SECOND));
+            await flush();
+            expect(live(element, 'decided')).not.toBeNull();
+        });
+    });
+
     describe('Decided on open', () => {
         it('shows the label, the name and the decision time, and never refreshes', async () => {
             const element = mount();
