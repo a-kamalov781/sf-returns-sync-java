@@ -341,6 +341,11 @@ Verified:
   record for every wire on the page (the component, the header and the detail panel), so one refresh is two to
   three `RecordUi` requests; none count against the API allocation. The page is also the default in the
   Salesforce mobile app, but it was not opened on a phone.
+- After the single-bound refactor (#2), the component was checked live again on desktop on 2026-11-11 (deploy
+  `0Affj00000YqlyXCAR`): Waiting turned into the decision on the same view within 1.3 s of `LastModifiedDate`; a
+  decided record made no record request in about 70 s; a record read held back in the browser ended in Error
+  "the refresh did not answer" 10.0 s after it was sent; after No decision yet, "Check again" showed the decision
+  once the service was back. Recovery from that Error without a reload was not checked.
 - A record read that fails with an HTTP error does not reach the component: Lightning retries it and
   `notifyRecordUpdateAvailable` resolves, so the page ends in No decision yet rather than Error. Error shows only
   when a refresh does not answer within 10 s or the platform reports the failure. Not checked on a phone.
