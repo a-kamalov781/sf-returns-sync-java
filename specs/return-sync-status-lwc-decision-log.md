@@ -40,3 +40,8 @@ measure, and the deliverables. The interview asked nothing further.
 - **The live checks start the local service from the newest event.** Its stored replay position predated a
   1,200-event load run, so a restart would have replayed that backlog against the daily event allowance. The
   user chose clearing the position over draining it. Origin: User.
+- **"Stops when the user leaves the page" now reads "or at the latest at the limit".** The review found the
+  component stops only when Lightning disconnects it; a page kept alive for back navigation, or a background
+  console tab, keeps a waiting record refreshing until its 60 s limit (at most about 30 LDS requests, none
+  counted against the API allocation). Alternatives: stop on a page change through `CurrentPageReference`.
+  Decided: amend the spec's constraint to match the plan's accepted risk; no code change. Origin: User.

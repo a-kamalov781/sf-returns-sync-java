@@ -48,7 +48,7 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
 
 - Works for a user with the `Return_Request_Manager` permission set and no other access to the object.
 - Stops all background requests once the status leaves `New`, when the limit is reached, on an error, and when
-  the user leaves the page.
+  the user leaves the page, or at the latest at the limit when Lightning keeps a left page alive.
 - Background refreshes do not count against the org's daily API request allocation.
 - Labels the time as "about N s" when it is under a minute.
 
