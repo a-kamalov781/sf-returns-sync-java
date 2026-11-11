@@ -1,13 +1,14 @@
 # Org setup: from zero to a live run
 
-This guide closes the three items the README lists as *not verified*: a run against a live org, Apex
-compilation, and memory under load. Everything below is done by you, in your own free Developer Edition org.
+This guide reproduces what the README reports: the Salesforce part deployed and tested, the service running
+against a live org, and the load test. Everything below is done by you, in your own free Developer Edition org.
 Nothing here needs a paid licence.
 
 > UI labels in Setup change between releases. If a label below doesn't match, search for it in Setup's
 > Quick Find. Run against a live Developer Edition (Winter '27, API 68.0, 2026-11-10/11): steps 1–9, first with
 > option B (admin), then step 4 option A (integration user) — the `ApiEnabled` permission did not block the
-> assignment. Not run live: 8.6 graceful stop (checked in the CI container instead). Please report what differs.
+> assignment. 8.6 graceful stop was run in the container on GitHub Actions (`live-load`, 0.44 s). Please report
+> what differs.
 >
 > `sf org login web` could not open a browser from a sandboxed terminal and timed out after ~60 s. If that
 > happens: set `SF_WEB_OAUTH_SERVER_TIMEOUT=1800000` (ms) and open the login page yourself. If you are already
@@ -66,6 +67,8 @@ sf apex run test --target-org returns-dev --class-names ReturnRequestTriggerHand
 
 Expected: 2 tests pass, `ReturnRequestTriggerHandler` coverage above 75%. First live run (2026-11-10, API 68.0):
 2/2 passed, trigger 100%, handler 90%, org-wide 91%.
+
+The deploy also brings a page layout and a **Return Requests** tab, so the record page shows the status.
 
 **Give yourself access to the fields.** Deployed custom fields get no field-level security on any profile, so
 even the admin can't see or write them: `sf data create record` fails, anonymous Apex (`scripts/load-test.apex`)
@@ -128,7 +131,8 @@ it (step 5). Creating the user is the one step you do by hand.
 sf org assign permsetlicense --target-org returns-dev --name SalesforceAPIIntegrationPsl --on-behalf-of <integration-username>
 ```
 
-3. **Project permission set** (read/edit `Return_Request__c`, edit `Status__c`, read `Return_Requested__e`):
+3. **Project permission set** (read/edit `Return_Request__c`, edit `Status__c` and `External_Id__c` — the batched
+   Collections upsert carries the External ID in the record body and needs edit on it — read `Return_Requested__e`):
 
 ```bash
 sf org assign permset --target-org returns-dev --name Return_Sync_Integration --on-behalf-of <integration-username>

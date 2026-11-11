@@ -4,9 +4,8 @@ Goal: one hour of steady event traffic from a live Developer Edition org, and th
 for the README *Measured* table. Prerequisite: [ORG_SETUP.md](ORG_SETUP.md) steps 1–8 pass, and the user running
 the script has the `Return_Request_Manager` permission set (otherwise the anonymous Apex fails to compile with
 *Field does not exist*). `load-test.apex` and `load-test-cleanup.apex` were run once in a live Developer Edition
-(1 record in, 1 deleted). The full one-hour run was done on 2026-11-11 with `java -jar` instead of Docker:
-results in the README, [Load test results](../README.md#load-test-results). What is still missing is the same run
-inside the container, which is what `scripts/measure-memory.sh` measures.
+(1 record in, 1 deleted). Both one-hour runs (2026-11-11: first with `java -jar`, then the Docker image on GitHub
+Actions) are in the README, [Load test results](../README.md#load-test-results).
 
 ## Budget: Developer Edition limits
 
@@ -30,6 +29,13 @@ Check what's left before and after (the script prints it too):
 ```bash
 sf limits api display --target-org returns-dev | grep -iE 'DailyApiRequests|PlatformEvents|DataStorageMB'
 ```
+
+## No Docker? Run it on GitHub Actions
+
+Actions → **live-load** → *Run workflow* (needs the three repository secrets from ORG_SETUP §9 and the integration
+username as input). It builds the image, starts the compose stack against the live org, runs
+`scripts/load-test.sh` and `scripts/measure-memory.sh`, puts the results in the run summary, uploads the CSV, and
+deletes the load records. Only one run at a time (a second subscriber would double the deliveries).
 
 ## Run it (two terminals, from the repo root)
 

@@ -1,20 +1,42 @@
 # sf-returns-sync-java
 
-Salesforce ↔ Java integration without MuleSoft: Platform Events over the **Pub/Sub API (gRPC + Avro)**,
-idempotent processing, dead letters, retries of transient errors only, and the result written back to
-Salesforce with a **batched REST upsert by External ID** (sObject Collections, `updateOnly=true`).
+**A return request created in Salesforce gets its decision back in about a second — through a Java service
+instead of MuleSoft.**
 
-It is a portfolio project. The goal is to show the same job a MuleSoft Salesforce Pub/Sub Connector flow does,
-written by hand, small enough to explain line by line in an interview.
+![Demo: a return request is created in Salesforce; when its page opens the status is already Approved](docs/demo.gif)
 
-> **Status — read this first.** The service builds and all tests pass (`mvn verify`, CI, including Apex
-> validation against a live org). On 2026-11-10/11 it ran **end to end against a live Developer Edition** as a
-> least-privilege integration user: JWT login, real Avro events, REST upsert, restart from the stored replay ID,
-> corrupted replay ID → EARLIEST with duplicates dropped, a 404 dead letter, and a one-hour load test (1,200 events,
-> 0 duplicates, 0 errors) that found and led to a fix for a silent dead stream. Still open: the memory figure
-> **inside the container** with a live org (the live runs had no Docker).
-> See [What is verified and what is not](#what-is-verified-and-what-is-not) and [Next steps](#next-steps).
-> Setting up an org step by step: [docs/ORG_SETUP.md](docs/ORG_SETUP.md).
+<sub>Recorded on the live Developer Edition: `DEMO-2042` created at 23:51:35 UTC, set to `Approved` at 23:51:36 by
+the integration user — the service was running in a Docker container on GitHub Actions at the time
+(the `live-load` workflow). The trigger sets `New` on insert; the page already loads the service's answer.</sub>
+
+## In one minute
+
+- **What.** Someone creates a *Return Request* in Salesforce. A small Java service hears about it, decides
+  `Approved` / `Rejected` / `Manual_Review` (a simple amount rule), and writes the status back to the record.
+- **Why.** It is the job companies usually build with MuleSoft's Salesforce connector, done by hand to show what
+  happens inside: event streaming, resuming after a crash, never processing an event twice, retrying only what is
+  worth retrying, parking bad messages. A portfolio project, small enough to explain line by line.
+- **How.**
+
+  ```
+  Salesforce                                   Java service (Spring Boot 4.1, Java 25)          PostgreSQL
+  ──────────                                   ───────────────────────────────────────          ──────────
+  record inserted ─► Apex trigger ─► Platform ─► Pub/Sub API (gRPC + Avro) ─► decide status ─► results,
+                                     Event bus                                     │            replay position,
+  record updated  ◄──────────── batched REST upsert by External ID ◄───────────────┘            dead letters
+  ```
+
+  The service logs in with OAuth 2.0 JWT Bearer, remembers its position in the event stream (the *replay ID*) in
+  PostgreSQL in the same transaction as the results, and picks up exactly where it stopped after a crash.
+- **Proof, on a live Salesforce Developer Edition.** 1,200 events under load: 1,200 statuses, **0 duplicates,
+  0 errors**; every record of a burst of 100 has its status within **2–6 s** (p95); the Docker container peaked
+  at **183 MiB of its 384 MiB** limit during an hour of load ([Load test results](#load-test-results)). CI runs
+  the tests, starts the Docker image and validates the Apex code against the org on every push.
+- **Stack.** Java 25 · Spring Boot 4.1 · gRPC + Avro (Salesforce Pub/Sub API) · PostgreSQL + Flyway · Docker ·
+  GitHub Actions · Apex / SFDX · JUnit 5, Mockito, Testcontainers, WireMock.
+
+Try it yourself: [docs/ORG_SETUP.md](docs/ORG_SETUP.md) (free Developer Edition, about an hour). What was checked
+and how: [What is verified and what is not](#what-is-verified-and-what-is-not).
 
 ## What it does
 
@@ -300,19 +322,40 @@ Verified:
 - **`apex` CI job** with the repository secrets: JWT login, `sf project deploy validate --test-level RunLocalTests`,
   14/14 components, Apex tests 2/2 — green on every push to `main`.
 
-**Not verified yet:**
+**Caveats:**
 
-- **Container memory with a live org.** The live runs were `java -jar` on Windows (no Docker on that machine):
-  peak working set 250 MiB, Java heap used at most 71 MiB of 269 MiB. Inside the 384 MB container the only figure
-  is idle without an org (150 MiB, CI). A one-hour `docker stats` run with a live org is still to do
-  (`scripts/measure-memory.sh`, [LOAD_TEST.md](docs/LOAD_TEST.md)).
-- Graceful shutdown was checked in the CI container (0.4 s), not in the live run (Windows had no SIGTERM).
+- One service instance per topic (strict order, one replay store); horizontal scaling is not designed.
 - Spring Boot support dates (4.0.x OSS until 2026-12-31, 4.1.x until 2027-07-31) come from a third-party review
   (AceMQ, compared with spring.io on 2026-10-22), not from spring.io directly.
 
 ## Load test results
 
-Live Developer Edition, 2026-11-11. `scripts/load-test.sh`: 12 rounds, each one anonymous-Apex insert of 100
+### Final: the Docker image against the live org
+
+[`live-load` run](https://github.com/a-kamalov781/sf-returns-sync-java/actions/runs/42922659862) on GitHub Actions, 2026-11-11, final code (batched write-back, idle watchdog): the
+`docker compose` stack (service `mem_limit: 384m`, PostgreSQL 17) against the live Developer Edition, the service
+logged in as the integration user; `scripts/load-test.sh` 12 rounds x 100 records every 5 minutes;
+`scripts/measure-memory.sh` sampled `docker stats` every minute for 60 minutes.
+
+| Metric | Value |
+|---|---|
+| Records that got a status | **1,200 / 1,200** (900 `Approved`, 300 `Manual_Review`) |
+| Duplicates / dead letters / container restarts / OOM kills | **0 / 0 / 0 / 0** |
+| Container memory over 60 min (`docker stats`) | min 166 MiB, avg 178 MiB, **max 183 MiB of 384 MiB (48%)** |
+| End-to-end latency, insert → status in Salesforce (1,200 events in bursts of 100) | **p50 2.4 s, p95 5.8 s**, max 5.8 s |
+| API requests for the whole run, load-script CLI calls included | **55** (one PATCH per event used ~1,300 for the same load) |
+| Graceful stop (`docker compose stop -t 30`) | **0.44 s** |
+| Warnings in the service log | 1: after ~58 min the server rotated the connection (`GOAWAY`, `NO_ERROR`); reconnected in 1 s with `CUSTOM`, nothing lost |
+
+Latency here is measured from GitHub's runner and uses Salesforce `CreatedDate`, which has 1 s resolution.
+
+### How it got there
+
+The first one-hour run used `java -jar` on Windows (no Docker on that machine) with one REST PATCH per event. It
+found two real problems — a silently dead stream and a 34 s p95 for a burst — fixed below, and the numbers above
+are after both fixes.
+
+Live Developer Edition, 2026-11-11, first run. `scripts/load-test.sh`: 12 rounds, each one anonymous-Apex insert of 100
 `Return_Request__c` (two `EventBus.publish` calls of up to 200), every 5 minutes, 1,200 events in total. Service:
 `java -jar` with the image's JVM flags (`-Xmx269m` = 70% of 384 MB, SerialGC), local PostgreSQL 17.11.
 
@@ -346,7 +389,7 @@ resubscribing with EARLIEST: the 1,205 already processed were skipped as duplica
 The memory "committed" by the JVM (Native Memory Tracking, ~370 MiB) is not usage: on a 16 GB Windows host the
 default initial heap is 1/64 of RAM (~256 MB) and is reserved up front; inside the 384 MB container it is ~6 MB.
 
-### Found by the load test: a silent dead stream
+#### Found by the load test: a silent dead stream
 
 After rounds 1–2 the service received **nothing** for 47 minutes: no events, no keepalives, no error, no
 `onCompleted`; a thread dump showed the worker idle and the gRPC threads waiting. 1,000 records stayed `New`. The
@@ -362,21 +405,18 @@ backlog with no duplicates. Nothing was lost: the events waited on the bus (72 h
 
 | Metric | Value | How |
 |---|---|---|
-| Memory, idle, no org (reconnect loop) | **150.2 MiB / 384 MiB (39%)**; Postgres 35.9 MiB / 256 MiB | CI `docker-smoke`, `docker stats --no-stream` after 90 s, GitHub `ubuntu-latest`, 2026-11-10 |
-| Graceful stop (`docker compose stop`) | 0.4 s | same CI run |
-| Memory, live org, 1 h load + backlog drain (Windows `java -jar`) | working set peak 250 MiB, heap used ≤ 71 MiB | sampled every 10–60 s; not comparable with `docker stats` |
-| Memory, live org, 1 h, in the container | ___ MiB | `scripts/measure-memory.sh` — *needs Docker* |
-| Throughput (one PATCH per event) | 3.4 events/s | 1,000-event backlog, live org; batched throughput: see live-load |
-| End-to-end latency, burst of 100 | batched: p50 1.2 s / p95 1.9 s / max 2.3 s (one PATCH per event was p50 18.9 s / p95 33.7 s) | `CreatedDate` vs `processed_at`, live org |
+| Container memory, live org, 1 h under load | **max 183 MiB / 384 MiB (48%)**, avg 178 MiB | `live-load`, `docker stats` every 60 s |
+| Container memory, idle, no org | 150 MiB / 384 MiB | CI `docker-smoke`, after 90 s |
+| End-to-end latency, burst of 100 | p50 1.2–2.4 s, p95 1.9–5.8 s (local run / GitHub runner) | `CreatedDate` vs `processed_at` |
+| API requests per 1,200 events | 55 (batched) vs ~1,300 (one PATCH per event) | `sf limits api display` before/after |
+| Graceful stop | 0.44 s with a live org, 0.4 s without | `docker compose stop -t 30` |
+| Duplicates / errors under load | 0 / 0 | `processed_returns` rows = distinct IDs |
 
 ## Next steps
 
-| Open item | How to close it |
-|---|---|
-| Container memory with a live org | GitHub Actions → **live-load** (manual): compose with the real org, `scripts/load-test.sh`, `scripts/measure-memory.sh`, results in the run summary |
-| Graceful stop with a live org | `docker compose stop -t 30 service` during a run ([ORG_SETUP 8.6](docs/ORG_SETUP.md#8-first-run-checklist)) |
-
-v2 ideas, not needed for the interview story: a metric for replay lag, `ManagedSubscribe` once it is GA.
+Nothing open for v1. Ideas for v2: a metric for replay lag (time between `CreatedDate` and processing), several
+instances on one topic (`ManagedSubscribe` or partitioning), Composite single upserts if edit access to
+`External_Id__c` is not acceptable.
 
 ## CI secrets (optional)
 

@@ -41,4 +41,8 @@
         <object>Return_Requested__e</object>
         <viewAllRecords>false</viewAllRecords>
     </objectPermissions>
+    <tabSettings>
+        <tab>Return_Request__c</tab>
+        <visibility>Visible</visibility>
+    </tabSettings>
 </PermissionSet>
