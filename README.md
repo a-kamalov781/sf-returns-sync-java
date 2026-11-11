@@ -33,7 +33,7 @@ the integration user — the service was running in a Docker container on GitHub
   at **183 MiB of its 384 MiB** limit during an hour of load ([Load test results](#load-test-results)). CI runs
   the tests (Java and LWC Jest), starts the Docker image and validates the Apex code against the org on every push.
 - **Stack.** Java 25 · Spring Boot 4.1 · gRPC + Avro (Salesforce Pub/Sub API) · PostgreSQL + Flyway · Docker ·
-  GitHub Actions · Apex / SFDX · JUnit 5, Mockito, Testcontainers, WireMock.
+  GitHub Actions · Apex / SFDX · Lightning Web Components · JUnit 5, Mockito, Testcontainers, WireMock, Jest.
 
 Try it yourself: [docs/ORG_SETUP.md](docs/ORG_SETUP.md) (free Developer Edition, about an hour). What was checked
 and how: [What is verified and what is not](#what-is-verified-and-what-is-not).
