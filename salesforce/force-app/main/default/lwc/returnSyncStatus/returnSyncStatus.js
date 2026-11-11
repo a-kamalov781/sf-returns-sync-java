@@ -76,6 +76,8 @@ export default class ReturnSyncStatus extends LightningElement {
     now = Date.now();
 
     generation = 0;
+    // Generation current when the wire last errored; a click's result must not clear an error from its own round.
+    wireErrorGeneration;
     // { generation, fromButton } of the outstanding refresh; it only counts while its generation is current.
     pending;
 
@@ -92,6 +94,7 @@ export default class ReturnSyncStatus extends LightningElement {
             this.errorText = undefined;
         } else if (error) {
             this.errorText = readErrorText(error);
+            this.wireErrorGeneration = this.generation;
         } else {
             // The adapter's initial empty provision is not an input.
             return;
@@ -241,8 +244,9 @@ export default class ReturnSyncStatus extends LightningElement {
         }
         if (error) {
             this.errorText = readErrorText(error);
-        } else if (fromButton && this.record) {
-            // LDS emits nothing for an unchanged record, so a resolved click is the only sign the read works again.
+        } else if (fromButton && this.record && this.wireErrorGeneration !== generation) {
+            // LDS emits nothing for an unchanged record, so a resolved click is the only sign the read works again,
+            // unless the wire itself reported a failure while the click was out.
             this.errorText = undefined;
             if (this.status === STATUS_NEW) {
                 this.buttonDeadline = clickedAt + WAIT_MS;

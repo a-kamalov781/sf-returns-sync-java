@@ -391,6 +391,30 @@ describe('c-return-sync-status', () => {
         });
     });
 
+    describe('Button when the wire errors during its refresh', () => {
+        it('keeps Error and the button although the refresh resolves', async () => {
+            const element = mount();
+            getRecord.emit(newRecord(T0 - 10 * SECOND));
+            await flush();
+            getRecord.error({ message: 'Server unavailable' }, 500, 'Server Error');
+            await flush();
+            expect(shown(element)).toEqual(['error']);
+
+            notifyRecordUpdateAvailable.mockImplementationOnce(() => {
+                getRecord.error({ message: 'Still unavailable' }, 500, 'Server Error');
+                return Promise.resolve();
+            });
+            await click(element);
+
+            expect(shown(element)).toEqual(['error']);
+            expect(text(element, 'error')).toContain('Still unavailable');
+            expect(button(element)).not.toBeNull();
+            expect(button(element).disabled).toBeFalsy();
+            await advanceSeconds(20);
+            expect(calls()).toBe(1);
+        });
+    });
+
     describe('Refresh rejects while waiting', () => {
         it('shows Error with the message and stops calling', async () => {
             notifyRecordUpdateAvailable.mockRejectedValueOnce({ body: { message: 'Network failure' } });
