@@ -85,9 +85,10 @@ export default class ReturnSyncStatus extends LightningElement {
     connected = false;
     intervalId;
     ticks = 0;
-    loadBoundId;
-    buttonBoundId;
-    clockBoundId;
+    // One timer bounds whatever the card waits on: the first load, or the single outstanding refresh. The two never
+    // overlap: a refresh needs a record or an error on screen, and the load wait ends at the first provision or when
+    // its bound fires.
+    boundId;
 
     @wire(getRecord, { recordId: '$recordId', fields: FIELDS, optionalFields: OPTIONAL_FIELDS })
     wiredRecord({ data, error }) {
@@ -101,7 +102,10 @@ export default class ReturnSyncStatus extends LightningElement {
             // The adapter's initial empty provision is not an input.
             return;
         }
-        this.clearLoadBound();
+        // A provision ends the load wait; it must not cut short the bound of a refresh still out.
+        if (!this.hasCurrentPending()) {
+            this.clearBound();
+        }
         this.reconcile();
     }
 
@@ -109,7 +113,7 @@ export default class ReturnSyncStatus extends LightningElement {
         this.connected = true;
         // Without a record id the wire never provisions, so a bound would report a load failure that was never attempted.
         if (this.recordId && !this.record && this.errorText === undefined) {
-            this.loadBoundId = setTimeout(() => this.handleLoadBound(), BOUND_MS);
+            this.startBound();
         }
         this.reconcile();
     }
@@ -119,9 +123,7 @@ export default class ReturnSyncStatus extends LightningElement {
         this.stopClock();
         // Bumped even when the clock was not running, so a refresh still out cannot act on a detached component.
         this.bumpGeneration();
-        this.clearLoadBound();
-        this.clearButtonBound();
-        this.clearClockBound();
+        this.clearBound();
     }
 
     get status() {
@@ -200,40 +202,21 @@ export default class ReturnSyncStatus extends LightningElement {
         const clickedAt = Date.now();
         // Supersedes a clock refresh still out instead of waiting behind it, which could hang on a phone.
         this.bumpGeneration();
-        this.clearClockBound();
-        this.clearButtonBound();
-        this.buttonBoundId = setTimeout(() => this.handleButtonBound(), BOUND_MS);
         this.refresh(true, clickedAt);
     }
 
-    handleLoadBound() {
-        this.loadBoundId = undefined;
-        if (!this.record && this.errorText === undefined) {
+    handleBound() {
+        this.boundId = undefined;
+        if (this.hasCurrentPending()) {
+            // Abandon the request so its late result is ignored, and say so. After a click, going back to the state shown
+            // before it would hide that the check failed. For a clock refresh, waiting until the deadline would report
+            // No decision yet, as if the service were at fault. The button stays available to try again.
+            this.bumpGeneration();
+            this.pending = undefined;
+            this.errorText = NO_ANSWER_TEXT;
+            this.reconcile();
+        } else if (!this.record && this.errorText === undefined) {
             this.errorText = LOAD_ERROR_TEXT;
-            this.reconcile();
-        }
-    }
-
-    handleButtonBound() {
-        this.buttonBoundId = undefined;
-        if (this.hasCurrentPending() && this.pending.fromButton) {
-            // Abandon the click's request so its late result is ignored. Saying so, rather than going back to the state
-            // shown before the click, tells the user the check failed; the button stays available to try again.
-            this.bumpGeneration();
-            this.pending = undefined;
-            this.errorText = NO_ANSWER_TEXT;
-            this.reconcile();
-        }
-    }
-
-    handleClockBound() {
-        this.clockBoundId = undefined;
-        if (this.hasCurrentPending() && !this.pending.fromButton) {
-            // Without this a refresh that never answers would leave the clock waiting until the deadline and then report
-            // No decision yet, as if the service were at fault.
-            this.bumpGeneration();
-            this.pending = undefined;
-            this.errorText = NO_ANSWER_TEXT;
             this.reconcile();
         }
     }
@@ -253,9 +236,8 @@ export default class ReturnSyncStatus extends LightningElement {
     refresh(fromButton, clickedAt) {
         const generation = this.generation;
         this.pending = { generation, fromButton };
-        if (!fromButton) {
-            this.clockBoundId = setTimeout(() => this.handleClockBound(), BOUND_MS);
-        }
+        // Replacing the timer is safe: any earlier refresh is from an older generation, so its bound would do nothing.
+        this.startBound();
         let request;
         try {
             request = notifyRecordUpdateAvailable([{ recordId: this.recordId }]);
@@ -276,11 +258,7 @@ export default class ReturnSyncStatus extends LightningElement {
             return;
         }
         this.pending = undefined;
-        if (fromButton) {
-            this.clearButtonBound();
-        } else {
-            this.clearClockBound();
-        }
+        this.clearBound();
         if (failed) {
             this.errorText = readErrorText(error);
         } else if (fromButton && this.record) {
@@ -317,7 +295,8 @@ export default class ReturnSyncStatus extends LightningElement {
         if (this.intervalId) {
             clearInterval(this.intervalId);
             this.intervalId = undefined;
-            this.clearClockBound();
+            // The bump below makes the refresh this bound guards stale, so the bound has nothing left to do.
+            this.clearBound();
             this.bumpGeneration();
         }
     }
@@ -330,24 +309,15 @@ export default class ReturnSyncStatus extends LightningElement {
         return Boolean(this.pending) && this.pending.generation === this.generation;
     }
 
-    clearLoadBound() {
-        if (this.loadBoundId) {
-            clearTimeout(this.loadBoundId);
-            this.loadBoundId = undefined;
-        }
+    startBound() {
+        this.clearBound();
+        this.boundId = setTimeout(() => this.handleBound(), BOUND_MS);
     }
 
-    clearClockBound() {
-        if (this.clockBoundId) {
-            clearTimeout(this.clockBoundId);
-            this.clockBoundId = undefined;
-        }
-    }
-
-    clearButtonBound() {
-        if (this.buttonBoundId) {
-            clearTimeout(this.buttonBoundId);
-            this.buttonBoundId = undefined;
+    clearBound() {
+        if (this.boundId) {
+            clearTimeout(this.boundId);
+            this.boundId = undefined;
         }
     }
 }
