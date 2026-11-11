@@ -238,16 +238,17 @@ export default class ReturnSyncStatus extends LightningElement {
             request = notifyRecordUpdateAvailable([{ recordId: this.recordId }]);
         } catch (error) {
             // A synchronous throw would otherwise leave the pending marker set and the button disabled until its bound.
-            this.settle(generation, fromButton, clickedAt, error === undefined ? {} : error);
+            this.settle(generation, fromButton, clickedAt, true, error);
             return;
         }
         request.then(
-            () => this.settle(generation, fromButton, clickedAt, undefined),
-            (error) => this.settle(generation, fromButton, clickedAt, error === undefined ? {} : error)
+            () => this.settle(generation, fromButton, clickedAt, false),
+            // A rejection reason can be any falsy value, so failure is passed apart from it.
+            (error) => this.settle(generation, fromButton, clickedAt, true, error)
         );
     }
 
-    settle(generation, fromButton, clickedAt, error) {
+    settle(generation, fromButton, clickedAt, failed, error) {
         if (generation !== this.generation) {
             return;
         }
@@ -255,7 +256,7 @@ export default class ReturnSyncStatus extends LightningElement {
         if (fromButton) {
             this.clearButtonBound();
         }
-        if (error) {
+        if (failed) {
             this.errorText = readErrorText(error);
         } else if (fromButton && this.record && this.wireErrorGeneration !== generation) {
             // LDS emits nothing for an unchanged record, so a resolved click is the only sign the read works again,

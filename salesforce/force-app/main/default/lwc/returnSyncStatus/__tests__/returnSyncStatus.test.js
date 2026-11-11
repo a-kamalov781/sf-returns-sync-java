@@ -505,6 +505,22 @@ describe('c-return-sync-status', () => {
         });
     });
 
+    describe('Refresh rejects with no reason', () => {
+        it.each([undefined, null, 0, '', false])('shows Error for a rejection with %p and stops calling', async (reason) => {
+            notifyRecordUpdateAvailable.mockReturnValueOnce(Promise.reject(reason));
+            const element = mount();
+            getRecord.emit(newRecord(T0 - 10 * SECOND));
+            await flush();
+
+            await advanceSeconds(2);
+            expect(shown(element)).toEqual(['error']);
+            expect(text(element, 'error')).toContain('unknown error.');
+            await advanceSeconds(20);
+            expect(calls()).toBe(1);
+            expect(jest.getTimerCount()).toBe(0);
+        });
+    });
+
     describe('Refresh throws synchronously', () => {
         it('shows Error and re-enables the button after a click', async () => {
             notifyRecordUpdateAvailable.mockImplementationOnce(() => {
