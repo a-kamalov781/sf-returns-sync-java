@@ -45,3 +45,20 @@ measure, and the deliverables. The interview asked nothing further.
   console tab, keeps a waiting record refreshing until its 60 s limit (at most about 30 LDS requests, none
   counted against the API allocation). Alternatives: stop on a page change through `CurrentPageReference`.
   Decided: amend the spec's constraint to match the plan's accepted risk; no code change. Origin: User.
+- **A clock refresh that never answers ends in Error after 10 s.** Not in the plan, which bounded only the first
+  load and the button. Review round 2 found that a hung clock refresh would block every later refresh until the
+  limit and then blame the service ("may be down"). Decided: bound it at 10 s like the button. The live check
+  then showed it is load-bearing: a record read that hung never settled, and this bound is what turned it into
+  Error. Origin: speccy, alone.
+- **The button's own hung request also ends in Error.** Round 2 re-enabled the button silently after 10 s;
+  round 3 found that left No decision yet blaming the service. Decided: show Error with the button, as for the
+  clock refresh. Origin: speccy, alone.
+- **The tick counter is reset where the clock starts.** Round 1 moved the reset into `bumpGeneration` to give it
+  one owner; round 2 found that tied the cadence to an unrelated concern. Decided: reset in `startClock`.
+  Reversal of a round-1 fix. Origin: speccy, alone.
+- **Open: an HTTP error on a refresh does not reach the component.** Live check, not a review finding. With the
+  record read rewritten to fail (HTTP 404), Lightning retried the request and `notifyRecordUpdateAvailable`
+  resolved, so the page reached No decision yet instead of Error. The spec's Error state ("a refresh fails while
+  waiting") holds only when the request hangs or the platform reports the failure. Not decided: amend the spec,
+  or detect it (for example, compare the record's `lastModifiedDate`/`weakEtag` before and after a refresh). The
+  user's call.
