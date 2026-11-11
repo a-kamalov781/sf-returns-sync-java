@@ -12,11 +12,11 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
 
 - **The component asks again on a short timer until the status leaves `New`, then stops.** Salesforce does not
   push a REST update by another user to an open record page, and the alternatives that would push it (Change
-  Data Capture, a second platform event) add org setup and spend the Developer Edition's event-delivery
-  allowance for a wait that lasts about two seconds.
+  Data Capture, a second platform event) would deliver every change to the object to every open page, each
+  delivery counting against the Developer Edition's 10,000 a day event allowance.
 - **"How long it took" is the time from the record's creation to its last modification.** The org has no
-  decision timestamp; adding one would change the Java service, its permission set and the Collections upsert,
-  which is out of proportion for a display.
+  decision timestamp; adding one would change the Java service and its permission set, which is out of
+  proportion for a display.
 
 ## Deliverables
 
@@ -24,20 +24,19 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
   - **Waiting**: status is `New`; says the decision is pending and shows the time since creation.
   - **Decided**: status is `Approved`, `Rejected` or `Manual_Review`; shows the decision, the user who last
     modified the record, and the time from creation to last modification.
-  - **No decision yet**: the status is still `New` more than 60 s after creation (the waiting limit), including
-    when the record is opened that late; says the sync service may be down and offers a button that checks once
-    more and, if still `New`, waits again for one more limit.
-  - **Error**: the record cannot be read, or a refresh fails while waiting; shows the platform's error message
-    and stops the timer.
-- A Lightning record page for `Return_Request__c` with the component and the record's fields. It is the org
-  default on desktop and phone.
+  - **No decision yet**: the status is still `New` more than 60 s after creation (the waiting limit); says the
+    sync service may be down and offers a button that checks once more and, if still `New`, waits 60 s more
+    from the click.
+  - **Error**: the record cannot be read, or a refresh fails while waiting; shows the platform's error message.
+- A Lightning record page for `Return_Request__c` with the component and the record's fields, with `Status__c`
+  read-only as on the current layout. It is the org default on desktop and phone.
 - AGENTS.md's Verification table and CI line list the component test command and its expected result.
 
 ## Scope boundaries
 
 - No change to the Java service, the Platform Event, the trigger, or the permission sets' object and field
   access.
-- No decision timestamp or "decided by" field. The decided state uses the last-modified user and time.
+- No decision timestamp or "decided by" field.
 - No history of status changes; the component shows the current status only.
 - The component is not offered for other objects or on list views, utility bars or the home page.
 
@@ -47,13 +46,12 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
 - Stops all background requests once the status leaves `New`, when the limit is reached, on an error, and when
   the user leaves the page.
 - Background refreshes do not count against the org's daily API request allocation.
-- Labels the time as "about N s" when it is under a minute. `CreatedDate` and `LastModifiedDate` have one second
-  resolution, so a sub-second answer reads as 0–1 s.
+- Labels the time as "about N s" when it is under a minute.
 
 ## Completion criteria
 
-- [ ] In the live Developer Edition, a record created from the UI shows "waiting" and then the decision on the
-      same page view, without a reload, within 5 s of the record's `LastModifiedDate`.
+- [ ] In the live Developer Edition, a record that is still `New` when its page opens shows the decision on the
+      same page view, without a reload, within 5 s of its `LastModifiedDate`.
 - [ ] A record opened after its decision shows the decided state immediately and makes no background requests.
 - [ ] A record still `New` more than 60 s after creation opens in No decision yet.
 - [ ] With the Java service stopped, a new record shows "No decision yet" once the limit passes, and the button
@@ -71,8 +69,8 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
   every open page, and each delivery counts against the Developer Edition's 10,000 a day event allowance,
   shared with the Java service. The publish option is out under Scope boundaries (no change to the service or
   trigger). Salesforce's LWC guidance advises against refreshing in a timer loop because it loads the server;
-  that cost is bounded here by the 60 s limit and the stop conditions, at most about 30 refreshes per record
-  view, and those refreshes do not count against the daily API allowance.
+  that cost is bounded here by the 60 s limit and the stop conditions, and those refreshes do not count
+  against the daily API allowance.
   **Origin**: speccy, user-agreed.
 - **Decision**: measure "how long it took" as last-modified time minus creation time, and "who" as the
   last-modified user.
@@ -88,19 +86,23 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
   **Why**: the service normally answers in about 1–3 s, so a minute separates "slow" from "down", and an
   open tab must not keep calling forever.
   **Origin**: speccy, user-agreed.
-- **Decision**: the waiting limit and the elapsed time both count from the record's creation.
-  **Alternatives**: count from the moment the page opens.
+- **Decision**: the first waiting limit and the elapsed time count from the record's creation. A wait started
+  by the button lasts 60 s from the click.
+  **Alternatives**: count the first limit from the moment the page opens; count the button's wait from
+  creation too.
   **Why**: a record created while the service is down and opened later would otherwise show "waiting" with a
-  timer at 0 and poll for another minute on every view.
-  **Origin**: speccy, proposed.
+  timer at 0 and poll for another minute on every view. A button wait counted from creation would already be
+  over when clicked and drop straight back to No decision yet.
+  **Origin**: speccy, user-agreed.
 - **Decision**: the new record page is the org default on desktop and phone.
   **Alternatives**: desktop only; an app or profile assignment.
-  **Why**: the repo has no record page, and the status must show for every user on every device.
+  **Why**: an org default reaches every app and profile through two overrides in the object's metadata. An app
+  or profile assignment covers only the apps or profiles it names, and desktop only leaves phone users without
+  the status.
   **Origin**: speccy, proposed.
 - **Decision**: a refresh that fails while waiting shows Error and stops the timer.
   **Alternatives**: keep waiting and polling through the failure.
-  **Why**: a failing record read is unlikely to recover quickly, and the Error state is the one place the user
-  learns why nothing changes.
+  **Why**: the Error state is the one place the user learns why nothing changes.
   **Origin**: speccy, proposed.
 
 ## Assumptions

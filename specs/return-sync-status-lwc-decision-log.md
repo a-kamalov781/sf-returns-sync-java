@@ -17,4 +17,8 @@ measure, and the deliverables. The interview asked nothing further.
 
 ## Entries
 
-None yet.
+- **The second wait after "check again" counts from the click.** Proposed in the draft: the waiting limit counts
+  from the record's creation (Decision 4). Round-2 critique: on a record already past the limit, the button's
+  "wait again" would end at once, so the button could never wait. Decided: the first wait and the elapsed time
+  count from creation; a second wait lasts 60 s from the click. Origin: speccy, user-agreed (the user took all
+  round-2 findings).
