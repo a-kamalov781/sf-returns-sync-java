@@ -9,23 +9,7 @@ const STATES = ['loading', 'waiting', 'decided', 'no-decision', 'error'];
 
 const iso = (ms) => new Date(ms).toISOString();
 
-function newRecord(createdMs) {
-    return {
-        apiName: 'Return_Request__c',
-        id: RECORD_ID,
-        fields: {
-            Status__c: { value: 'New', displayValue: 'New' },
-            CreatedDate: { value: iso(createdMs), displayValue: null },
-            LastModifiedDate: { value: iso(createdMs), displayValue: null },
-            LastModifiedBy: {
-                value: { fields: { Name: { value: 'Integration User', displayValue: null } } },
-                displayValue: null
-            }
-        }
-    };
-}
-
-function decidedRecord(createdMs, modifiedMs, options = {}) {
+function record(createdMs, modifiedMs, options = {}) {
     const { value = 'Approved', label = 'Approved', name = 'Integration User' } = options;
     const fields = {
         Status__c: { value, displayValue: label },
@@ -40,6 +24,8 @@ function decidedRecord(createdMs, modifiedMs, options = {}) {
     }
     return { apiName: 'Return_Request__c', id: RECORD_ID, fields };
 }
+
+const newRecord = (createdMs) => record(createdMs, createdMs, { value: 'New', label: 'New' });
 
 function deferred() {
     let resolve;
@@ -131,7 +117,7 @@ describe('c-return-sync-status', () => {
             await flush();
             expect(live(element, 'error')).not.toBeNull();
 
-            getRecord.emit(decidedRecord(T0 - 60 * SECOND, T0 - 58 * SECOND));
+            getRecord.emit(record(T0 - 60 * SECOND, T0 - 58 * SECOND));
             await flush();
             expect(live(element, 'decided')).not.toBeNull();
         });
@@ -140,7 +126,7 @@ describe('c-return-sync-status', () => {
     describe('Decided on open', () => {
         it('shows the label, the name and the decision time, and never refreshes', async () => {
             const element = mount();
-            getRecord.emit(decidedRecord(T0 - 120 * SECOND, T0 - 118 * SECOND));
+            getRecord.emit(record(T0 - 120 * SECOND, T0 - 118 * SECOND));
             await flush();
 
             expect(shown(element)).toEqual(['decided']);
@@ -210,7 +196,7 @@ describe('c-return-sync-status', () => {
             await advanceSeconds(2);
             expect(calls()).toBe(1);
 
-            getRecord.emit(decidedRecord(T0 - 10 * SECOND, T0 + 1 * SECOND, { value: 'Rejected', label: 'Rejected' }));
+            getRecord.emit(record(T0 - 10 * SECOND, T0 + 1 * SECOND, { value: 'Rejected', label: 'Rejected' }));
             await flush();
 
             expect(shown(element)).toEqual(['decided']);
@@ -310,7 +296,7 @@ describe('c-return-sync-status', () => {
             await flush();
 
             notifyRecordUpdateAvailable.mockImplementationOnce(() => {
-                getRecord.emit(decidedRecord(T0 - 90 * SECOND, T0 - 30 * SECOND));
+                getRecord.emit(record(T0 - 90 * SECOND, T0 - 30 * SECOND));
                 return Promise.resolve();
             });
             await click(element);
@@ -419,7 +405,7 @@ describe('c-return-sync-status', () => {
             await flush();
 
             notifyRecordUpdateAvailable.mockImplementationOnce(() => {
-                getRecord.emit(decidedRecord(T0 - 20 * SECOND, T0 - 18 * SECOND));
+                getRecord.emit(record(T0 - 20 * SECOND, T0 - 18 * SECOND));
                 return Promise.resolve();
             });
             await click(element);
@@ -834,7 +820,7 @@ describe('c-return-sync-status', () => {
             [-5 * SECOND, 'about 0 s']
         ])('a decision time of %i ms reads "%s"', async (duration, expected) => {
             const element = mount();
-            getRecord.emit(decidedRecord(T0 - 10 * 24 * 3600 * SECOND, T0 - 10 * 24 * 3600 * SECOND + duration));
+            getRecord.emit(record(T0 - 10 * 24 * 3600 * SECOND, T0 - 10 * 24 * 3600 * SECOND + duration));
             await flush();
 
             expect(text(element, 'decided')).toContain(expected);
@@ -852,7 +838,7 @@ describe('c-return-sync-status', () => {
         it('shows the picklist label, not the API value', async () => {
             const element = mount();
             getRecord.emit(
-                decidedRecord(T0 - 10 * SECOND, T0 - 7 * SECOND, { value: 'Manual_Review', label: 'Manual Review' })
+                record(T0 - 10 * SECOND, T0 - 7 * SECOND, { value: 'Manual_Review', label: 'Manual Review' })
             );
             await flush();
 
@@ -864,7 +850,7 @@ describe('c-return-sync-status', () => {
     describe('No name', () => {
         it('renders Decided without the name when LastModifiedBy.Name is absent', async () => {
             const element = mount();
-            getRecord.emit(decidedRecord(T0 - 10 * SECOND, T0 - 7 * SECOND, { value: 'Rejected', label: 'Rejected', name: null }));
+            getRecord.emit(record(T0 - 10 * SECOND, T0 - 7 * SECOND, { value: 'Rejected', label: 'Rejected', name: null }));
             await flush();
 
             expect(shown(element)).toEqual(['decided']);
