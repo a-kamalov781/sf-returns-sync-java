@@ -1,0 +1,4 @@
+# The server compiles a bundle's __tests__ folder as component code and rejects real Jest tests (LWC1503).
+**/__tests__/**
+**/jsconfig.json
+**/.eslintrc.json
