@@ -332,6 +332,8 @@ Verified:
 - One service instance per topic (strict order, one replay store); horizontal scaling is not designed.
 - Spring Boot support dates (4.0.x OSS until 2026-12-31, 4.1.x until 2027-07-31) come from a third-party review
   (AceMQ, compared with spring.io on 2026-10-22), not from spring.io directly.
+- The `returnSyncStatus` component is covered by Jest tests against local stubs; rendering in the org and the live
+  refresh have not been checked yet.
 
 ## Load test results
 
