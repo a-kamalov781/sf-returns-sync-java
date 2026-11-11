@@ -284,6 +284,26 @@ describe('c-return-sync-status', () => {
             expect(calls()).toBe(atLimit);
         });
 
+        it('counts the 60 s from the click, not from the response', async () => {
+            const pending = deferred();
+            notifyRecordUpdateAvailable.mockReturnValueOnce(pending.promise);
+            const element = mount();
+            getRecord.emit(newRecord(T0 - 90 * SECOND));
+            await flush();
+
+            await click(element);
+            await advanceSeconds(5);
+            pending.resolve();
+            await flush();
+            expect(shown(element)).toEqual(['waiting']);
+
+            // Click at T0: the deadline is T0 + 60 s although the response came at T0 + 5 s.
+            await advanceSeconds(54);
+            expect(shown(element)).toEqual(['waiting']);
+            await advanceSeconds(1);
+            expect(shown(element)).toEqual(['no-decision']);
+        });
+
         it('decided: renders Decided', async () => {
             const element = mount();
             getRecord.emit(newRecord(T0 - 90 * SECOND));
