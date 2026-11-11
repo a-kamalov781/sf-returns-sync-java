@@ -867,7 +867,12 @@ describe('c-return-sync-status', () => {
     });
 
     describe('Disconnect while the button refresh is out', () => {
-        it('ignores the late result and leaves no timer or call behind', async () => {
+        // A late result that acted on the detached component would show Error, or arm a
+        // 60 s deadline, as soon as the element is attached again.
+        it.each([
+            ['resolving', (pending) => pending.resolve()],
+            ['rejecting', (pending) => pending.reject({ body: { message: 'Network failure' } })]
+        ])('ignores a late %s result and leaves no timer or call behind', async (kind, settle) => {
             const pending = deferred();
             notifyRecordUpdateAvailable.mockReturnValueOnce(pending.promise);
             const element = mount();
@@ -878,11 +883,17 @@ describe('c-return-sync-status', () => {
             expect(calls()).toBe(1);
 
             document.body.removeChild(element);
-            pending.resolve();
+            settle(pending);
             await flush();
             await advanceSeconds(20);
 
             expect(calls()).toBe(1);
+            expect(jest.getTimerCount()).toBe(0);
+
+            document.body.appendChild(element);
+            await flush();
+            expect(shown(element)).toEqual(['no-decision']);
+            expect(button(element).disabled).toBeFalsy();
             expect(jest.getTimerCount()).toBe(0);
         });
     });
