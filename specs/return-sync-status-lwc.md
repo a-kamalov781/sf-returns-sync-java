@@ -1,6 +1,6 @@
 # Specification: Return Sync status on the record page
 
-**Status**: Draft
+**Status**: Accepted
 
 ## Goal
 
