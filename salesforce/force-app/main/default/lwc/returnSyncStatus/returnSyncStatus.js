@@ -217,8 +217,12 @@ export default class ReturnSyncStatus extends LightningElement {
     handleButtonBound() {
         this.buttonBoundId = undefined;
         if (this.hasCurrentPending() && this.pending.fromButton) {
-            // Abandon the click's request: the button re-enables and its late result is ignored.
+            // Abandon the click's request so its late result is ignored. Saying so, rather than going back to the state
+            // shown before the click, tells the user the check failed; the button stays available to try again.
             this.bumpGeneration();
+            this.pending = undefined;
+            this.errorText = NO_ANSWER_TEXT;
+            this.reconcile();
         }
     }
 

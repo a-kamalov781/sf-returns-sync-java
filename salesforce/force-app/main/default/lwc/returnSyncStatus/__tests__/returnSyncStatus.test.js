@@ -811,7 +811,7 @@ describe('c-return-sync-status', () => {
     });
 
     describe('Button bound', () => {
-        it('re-enables the button after 10 s with the state unchanged, and ignores the late result', async () => {
+        it('shows Error with an enabled button after 10 s, and ignores the late result', async () => {
             const pending = deferred();
             notifyRecordUpdateAvailable.mockReturnValueOnce(pending.promise);
             const element = mount();
@@ -824,11 +824,12 @@ describe('c-return-sync-status', () => {
             expect(button(element).disabled).toBe(true);
             await advanceSeconds(1);
             expect(button(element).disabled).toBeFalsy();
-            expect(shown(element)).toEqual(['no-decision']);
+            expect(shown(element)).toEqual(['error']);
+            expect(text(element, 'error')).toContain('the refresh did not answer.');
 
             pending.resolve();
             await flush();
-            expect(shown(element)).toEqual(['no-decision']);
+            expect(shown(element)).toEqual(['error']);
             expect(button(element).disabled).toBeFalsy();
             await advanceSeconds(20);
             expect(calls()).toBe(1);
