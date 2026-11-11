@@ -68,6 +68,9 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
   API in the component; have the Java service publish a "decided" platform event the component subscribes to.
   **Why**: the wait is about 2 s, and both push options need extra org setup and use the Developer Edition's
   event-delivery allowance (10,000 a day, shared with the Java service), which the load tests already spend.
+  Salesforce's LWC guidance advises against refreshing in a timer loop because it loads the server; that cost
+  is bounded here by the 60 s limit and the stop conditions, at most about 30 refreshes per record view, and
+  those refreshes do not count against the daily API allowance.
   **Origin**: speccy, proposed.
 - **Decision**: measure "how long it took" as last-modified time minus creation time, and "who" as the
   last-modified user.
