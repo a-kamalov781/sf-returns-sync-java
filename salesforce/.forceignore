@@ -1,5 +1,5 @@
 # The server compiles a bundle's __tests__ folder as component code and rejects real Jest tests (LWC1503).
 **/__tests__/**
-# jsconfig.json and .eslintrc.json are editor and lint config that SFDX tooling generates locally; they must not deploy.
+# jsconfig.json (created by the Salesforce Extensions for VS Code) and .eslintrc.json (shipped by `sf project generate` templates) are editor and lint config; they must not deploy.
 **/jsconfig.json
 **/.eslintrc.json
