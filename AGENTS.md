@@ -14,8 +14,8 @@ Instructions for coding agents working in this repository. Humans: see README.md
 ## Toolchain
 
 JDK 25, Node and the Salesforce CLI (`sf`) on `PATH`. The LWC Jest tests need the Node range in
-`salesforce/package.json` under `engines`, which is the range the lockfile declares for its test runner (checked on
-Node 26 on Windows; CI runs Node 22). Docker is optional locally: without it the Testcontainers tests are skipped (CI
+`salesforce/package.json` under `engines`. That is the range `npm ci` accepts without engine warnings, set by
+`vitest`, a peer dependency that `sfdx-lwc-jest` installs (checked on Node 26 on Windows; CI runs Node 22). Docker is optional locally: without it the Testcontainers tests are skipped (CI
 always runs them). The live org is the Developer Edition behind the CLI alias `returns-dev` (admin login).
 
 ## Verification
