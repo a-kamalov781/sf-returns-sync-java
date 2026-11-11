@@ -258,11 +258,14 @@ export default class ReturnSyncStatus extends LightningElement {
         }
         if (failed) {
             this.errorText = readErrorText(error);
-        } else if (fromButton && this.record && this.wireErrorGeneration !== generation) {
+        } else if (fromButton && this.record) {
             // LDS emits nothing for an unchanged record, so a resolved click is the only sign the read works again,
             // unless the wire itself reported a failure while the click was out.
-            this.errorText = undefined;
-            if (this.status === STATUS_NEW) {
+            if (this.wireErrorGeneration !== generation) {
+                this.errorText = undefined;
+            }
+            // A fresh emission may already have cleared the error; the click still earns its 60 s.
+            if (this.errorText === undefined && this.status === STATUS_NEW) {
                 this.buttonDeadline = clickedAt + WAIT_MS;
             }
         }

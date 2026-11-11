@@ -603,6 +603,35 @@ describe('c-return-sync-status', () => {
         });
     });
 
+    describe('Button whose refresh is out while the wire errors and recovers', () => {
+        it('renders Waiting with the deadline at click + 60 s once the refresh resolves', async () => {
+            const element = mount();
+            getRecord.emit(newRecord(T0 - 90 * SECOND));
+            await flush();
+            getRecord.error({ message: 'Server unavailable' }, 500, 'Server Error');
+            await flush();
+            expect(shown(element)).toEqual(['error']);
+
+            const pending = deferred();
+            notifyRecordUpdateAvailable.mockReturnValueOnce(pending.promise);
+            await click(element);
+            getRecord.error({ message: 'Still unavailable' }, 500, 'Server Error');
+            await flush();
+            getRecord.emit(newRecord(T0 - 90 * SECOND));
+            await flush();
+            expect(shown(element)).toEqual(['no-decision']);
+
+            pending.resolve();
+            await flush();
+            expect(shown(element)).toEqual(['waiting']);
+
+            await advanceSeconds(59);
+            expect(shown(element)).toEqual(['waiting']);
+            await advanceSeconds(1);
+            expect(shown(element)).toEqual(['no-decision']);
+        });
+    });
+
     describe('Emission after an error', () => {
         it('before the deadline: renders Waiting with the clock running and refreshes resuming', async () => {
             const element = mount();
