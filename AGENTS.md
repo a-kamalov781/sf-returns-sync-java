@@ -13,9 +13,9 @@ Instructions for coding agents working in this repository. Humans: see README.md
 
 ## Toolchain
 
-JDK 25, Node 20+ and the Salesforce CLI (`sf`) on `PATH`. Docker is optional locally: without it the
+JDK 25, Node 22.12+ (the LWC Jest tooling's lockfile requires it) and the Salesforce CLI (`sf`) on `PATH`. Docker is optional locally: without it the
 Testcontainers tests are skipped (CI always runs them). The live org is the Developer Edition behind the CLI
-alias `returns-dev` (admin login).
+alias `returns-dev` (admin login). The LWC tests were run on Node 26 (Windows); CI runs them on Node 22; they were not run on Node 20.
 
 ## Verification
 
@@ -25,7 +25,7 @@ Run these and keep them green. Each one was checked on a clean tree.
 |---|---|---|
 | Java build, unit + integration tests | `cd service && ./mvnw -B verify` | `BUILD SUCCESS`; 44 unit tests; the 5 `*IT` tests skip without Docker |
 | Salesforce metadata compiles, Apex tests pass (changes nothing in the org) | `cd salesforce && sf project deploy validate --source-dir force-app --target-org returns-dev --test-level RunLocalTests --wait 20` | `Status: Succeeded`, all Apex tests passing; the `returnSyncStatus` bundle goes without its `__tests__` (`salesforce/.forceignore`) |
-| LWC unit tests (no org needed) | `cd salesforce && npm ci && npm run test:unit` | 40 tests pass. Run on Node 26 (Windows); the toolchain was also checked on Node 22 (Windows); not run on Node 20 |
+| LWC unit tests (no org needed) | `cd salesforce && npm ci && npm run test:unit` | 49 tests pass |
 | Shell scripts parse | `for f in scripts/*.sh; do bash -n "$f"; done` | no output |
 
 CI (`.github/workflows/ci.yml`) runs the same checks on every push to `main` and on pull requests: `service`
