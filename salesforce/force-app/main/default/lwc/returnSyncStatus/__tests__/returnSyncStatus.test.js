@@ -444,6 +444,26 @@ describe('c-return-sync-status', () => {
         });
     });
 
+    describe('Button whose own refresh rejects', () => {
+        it('shows Error with the message and re-enables the button', async () => {
+            notifyRecordUpdateAvailable.mockRejectedValueOnce({ body: { message: 'Network failure' } });
+            const element = mount();
+            getRecord.emit(newRecord(T0 - 90 * SECOND));
+            await flush();
+            expect(shown(element)).toEqual(['no-decision']);
+
+            await click(element);
+
+            expect(calls()).toBe(1);
+            expect(shown(element)).toEqual(['error']);
+            expect(text(element, 'error')).toContain('Network failure');
+            expect(button(element)).not.toBeNull();
+            expect(button(element).disabled).toBeFalsy();
+            await advanceSeconds(20);
+            expect(calls()).toBe(1);
+        });
+    });
+
     describe('Button after a rejected refresh', () => {
         it('renders Waiting with the deadline at click + 60 s', async () => {
             notifyRecordUpdateAvailable.mockRejectedValueOnce({ body: { message: 'Network failure' } });
