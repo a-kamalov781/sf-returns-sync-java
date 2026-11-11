@@ -228,7 +228,15 @@ export default class ReturnSyncStatus extends LightningElement {
     refresh(fromButton, clickedAt) {
         const generation = this.generation;
         this.pending = { generation, fromButton };
-        notifyRecordUpdateAvailable([{ recordId: this.recordId }]).then(
+        let request;
+        try {
+            request = notifyRecordUpdateAvailable([{ recordId: this.recordId }]);
+        } catch (error) {
+            // A synchronous throw would otherwise leave the pending marker set and the button disabled until its bound.
+            this.settle(generation, fromButton, clickedAt, error === undefined ? {} : error);
+            return;
+        }
+        request.then(
             () => this.settle(generation, fromButton, clickedAt, undefined),
             (error) => this.settle(generation, fromButton, clickedAt, error === undefined ? {} : error)
         );

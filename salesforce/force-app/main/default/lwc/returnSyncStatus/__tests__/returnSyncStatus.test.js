@@ -464,6 +464,38 @@ describe('c-return-sync-status', () => {
         });
     });
 
+    describe('Refresh throws synchronously', () => {
+        it('shows Error and re-enables the button after a click', async () => {
+            notifyRecordUpdateAvailable.mockImplementationOnce(() => {
+                throw new Error('Adapter unavailable');
+            });
+            const element = mount();
+            getRecord.emit(newRecord(T0 - 90 * SECOND));
+            await flush();
+
+            await click(element);
+
+            expect(shown(element)).toEqual(['error']);
+            expect(text(element, 'error')).toContain('Adapter unavailable');
+            expect(button(element).disabled).toBeFalsy();
+        });
+
+        it('shows Error from the clock and stops calling', async () => {
+            notifyRecordUpdateAvailable.mockImplementationOnce(() => {
+                throw new Error('Adapter unavailable');
+            });
+            const element = mount();
+            getRecord.emit(newRecord(T0 - 10 * SECOND));
+            await flush();
+
+            await advanceSeconds(2);
+            expect(shown(element)).toEqual(['error']);
+            await advanceSeconds(20);
+            expect(calls()).toBe(1);
+            expect(jest.getTimerCount()).toBe(0);
+        });
+    });
+
     describe('Button after a rejected refresh', () => {
         it('renders Waiting with the deadline at click + 60 s', async () => {
             notifyRecordUpdateAvailable.mockRejectedValueOnce({ body: { message: 'Network failure' } });
