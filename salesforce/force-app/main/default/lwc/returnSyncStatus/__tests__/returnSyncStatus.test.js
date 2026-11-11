@@ -929,7 +929,9 @@ describe('c-return-sync-status', () => {
             [59 * SECOND + 999, 'about 59 s'],
             [60 * SECOND, 'about 1 min'],
             [59 * 60 * SECOND, 'about 59 min'],
+            [60 * 60 * SECOND, 'about 1 h'],
             [2 * 3600 * SECOND + 5 * 60 * SECOND, 'about 2 h'],
+            [24 * 3600 * SECOND, 'about 1 d'],
             [3 * 24 * 3600 * SECOND, 'about 3 d'],
             [-5 * SECOND, 'about 0 s']
         ])('a decision time of %i ms reads "%s"', async (duration, expected) => {
