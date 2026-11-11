@@ -107,18 +107,25 @@ describe('c-return-sync-status', () => {
             getRecord.emit(newRecord(T0 - 10 * SECOND));
             await flush();
             expect(live(element, 'waiting')).toBeNull();
+            // Screen readers announce content inserted into a live region that already exists,
+            // so every line must land in this one node rather than bring its own.
+            const region = block(element, 'live-region');
+            expect(region.getAttribute('aria-live')).toBe('polite');
 
             await advanceSeconds(50);
             expect(shown(element)).toEqual(['no-decision']);
-            expect(live(element, 'no-decision')).not.toBeNull();
+            expect(block(element, 'live-region')).toBe(region);
+            expect(region.contains(block(element, 'no-decision'))).toBe(true);
 
             getRecord.error({ message: 'Server unavailable' }, 500, 'Server Error');
             await flush();
-            expect(live(element, 'error')).not.toBeNull();
+            expect(block(element, 'live-region')).toBe(region);
+            expect(region.contains(block(element, 'error'))).toBe(true);
 
             getRecord.emit(record(T0 - 60 * SECOND, T0 - 58 * SECOND));
             await flush();
-            expect(live(element, 'decided')).not.toBeNull();
+            expect(block(element, 'live-region')).toBe(region);
+            expect(region.contains(block(element, 'decided'))).toBe(true);
         });
     });
 
