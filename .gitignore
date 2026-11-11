@@ -10,7 +10,7 @@ secrets/
 # build
 service/target/
 target/
-node_modules/
+node_modules
 
 # Salesforce CLI local state
 .sf/

@@ -55,9 +55,20 @@ Parallel tasks run in git worktrees, which lack git-ignored state. Recreate it f
 
 **Apply**
 
-- `ln -s ${MAIN}/secrets secrets`
-- `ln -s ${MAIN}/.env .env`
-- `test -d ${MAIN}/salesforce/node_modules && ln -s ${MAIN}/salesforce/node_modules salesforce/node_modules || true`
+- `MSYS=winsymlinks:nativestrict ln -s ${MAIN}/secrets secrets`
+- `MSYS=winsymlinks:nativestrict ln -s ${MAIN}/.env .env`
+
+**Notes**
+
+On Windows, Git Bash's `ln -s` copies the target instead of linking it unless `MSYS=winsymlinks:nativestrict`
+is set, which left a real copy of `.env` in a worktree once. With the setting, `ln -s` fails instead of copying
+when Windows does not allow symlinks (Developer Mode off; checked 2026-11-12 on the maintainer's machine: plain
+`ln -s` made a copy, with the setting it failed with "Operation not permitted"). A worktree then has no `.env` or
+`secrets/`; the LWC tests do not need them. To have the links, enable Developer Mode; do not drop the
+setting.
+
+Do not link `salesforce/node_modules`: run `cd salesforce && npm ci` in each worktree that needs the LWC tests.
+`npm ci` deletes `node_modules` first, so through a link it would wipe the main checkout's copy.
 
 ## Writing
 
