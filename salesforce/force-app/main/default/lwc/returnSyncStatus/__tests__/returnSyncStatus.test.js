@@ -801,6 +801,26 @@ describe('c-return-sync-status', () => {
             expect(jest.getTimerCount()).toBe(0);
         });
 
+        it('keeps its bound when the wire emits while the refresh is out', async () => {
+            notifyRecordUpdateAvailable.mockReturnValueOnce(new Promise(() => {}));
+            const element = mount();
+            getRecord.emit(newRecord(T0 - 10 * SECOND));
+            await flush();
+
+            await advanceSeconds(2);
+            expect(calls()).toBe(1);
+            // Another wire on the page can make LDS re-emit the unchanged record; that is not the refresh answering.
+            await advanceSeconds(3);
+            getRecord.emit(newRecord(T0 - 10 * SECOND));
+            await flush();
+            await advanceSeconds(6);
+            expect(shown(element)).toEqual(['waiting']);
+            await advanceSeconds(1);
+
+            expect(shown(element)).toEqual(['error']);
+            expect(text(element, 'error')).toContain('the refresh did not answer.');
+        });
+
         it('leaves no bound behind when the refresh answers', async () => {
             mount();
             getRecord.emit(newRecord(T0 - 10 * SECOND));
