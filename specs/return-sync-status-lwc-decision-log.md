@@ -56,9 +56,10 @@ measure, and the deliverables. The interview asked nothing further.
 - **The tick counter is reset where the clock starts.** Round 1 moved the reset into `bumpGeneration` to give it
   one owner; round 2 found that tied the cadence to an unrelated concern. Decided: reset in `startClock`.
   Reversal of a round-1 fix. Origin: speccy, alone.
-- **Open: an HTTP error on a refresh does not reach the component.** Live check, not a review finding. With the
-  record read rewritten to fail (HTTP 404), Lightning retried the request and `notifyRecordUpdateAvailable`
+- **An HTTP error on a refresh that Lightning swallows is not an Error.** Live check, not a review finding. With
+  the record read rewritten to fail (HTTP 404), Lightning retried the request and `notifyRecordUpdateAvailable`
   resolved, so the page reached No decision yet instead of Error. The spec's Error state ("a refresh fails while
-  waiting") holds only when the request hangs or the platform reports the failure. Not decided: amend the spec,
-  or detect it (for example, compare the record's `lastModifiedDate`/`weakEtag` before and after a refresh). The
-  user's call.
+  waiting") held only when the request hangs or the platform reports the failure. Alternatives: amend the spec,
+  or detect it by comparing the record's `lastModifiedDate`/`weakEtag` before and after a refresh (which cannot
+  tell a silent failure from a still-`New` record that has not changed). Decided: amend the spec; "fails" now
+  means the platform reports it or the refresh does not answer within 10 s. No code change. Origin: User.

@@ -27,9 +27,12 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
   - **No decision yet**: the status is still `New` more than 60 s after creation (the waiting limit); says the
     sync service may be down and offers a button that checks once more and, if still `New`, waits 60 s more
     from the click.
-  - **Error**: the record cannot be read, or a refresh fails while waiting; shows the platform's error message
-    and the same check-again button. If the read then succeeds and the status is decided, the component shows
-    Decided; if it is still `New`, it waits 60 s from the click.
+  - **Error**: the record cannot be read, or a refresh fails while waiting, meaning the platform reports the
+    failure or the refresh does not answer within 10 s; shows the platform's error message (or that the refresh
+    did not answer) and the same check-again button. If the read then succeeds and the status is decided, the
+    component shows Decided; if it is still `New`, it waits 60 s from the click. A refresh that the platform
+    retries and resolves without reporting a failure is not an error: the wait goes on, and if the failures
+    last past the limit the page shows No decision yet.
 - A Lightning record page for `Return_Request__c` with the component, the record's fields and the header and
   actions of the current page, with `Status__c` read-only as on the current layout. It is the org default on
   desktop and phone.
@@ -111,6 +114,14 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
   way back ends the wait for that page view and forces a reload, which is what the component exists to remove,
   and a single failed request is most likely on a phone.
   **Origin**: speccy, user-agreed.
+- **Decision**: "fails" means what the component can see: the platform reports the failure, or the refresh does
+  not answer within 10 s. A failed record read that Lightning retries and resolves silently is not detected.
+  **Alternatives**: detect it by comparing the record's `weakEtag` or `lastModifiedDate` before and after each
+  refresh.
+  **Why**: an unchanged record is also what a working refresh of a still-`New` record returns, so the
+  comparison cannot tell a silent failure from no news. The page still ends in No decision yet with the
+  check-again button, which says the service may be down: the right next step either way.
+  **Origin**: User.
 
 ## Assumptions
 
