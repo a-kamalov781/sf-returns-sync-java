@@ -315,6 +315,19 @@ describe('c-return-sync-status', () => {
         });
     });
 
+    describe('No record id', () => {
+        it('stays in Loading without an Error', async () => {
+            const element = createElement('c-return-sync-status', { is: ReturnSyncStatus });
+            document.body.appendChild(element);
+            await flush();
+
+            await advanceSeconds(10);
+            await advanceSeconds(10);
+            expect(shown(element)).toEqual(['loading']);
+            expect(calls()).toBe(0);
+        });
+    });
+
     describe('Error on read', () => {
         it('shows the platform message, the button and zero calls', async () => {
             const element = mount();

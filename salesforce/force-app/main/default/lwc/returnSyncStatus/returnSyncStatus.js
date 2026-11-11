@@ -105,7 +105,8 @@ export default class ReturnSyncStatus extends LightningElement {
 
     connectedCallback() {
         this.connected = true;
-        if (!this.record && this.errorText === undefined) {
+        // Without a record id the wire never provisions, so a bound would report a load failure that was never attempted.
+        if (this.recordId && !this.record && this.errorText === undefined) {
             this.loadBoundId = setTimeout(() => this.handleLoadBound(), BOUND_MS);
         }
         this.reconcile();
