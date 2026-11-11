@@ -70,7 +70,7 @@ flowchart LR
 ```
 sf-returns-sync-java/
 ├── salesforce/                      SFDX project
-│   ├── package.json, jest.config.js         Jest tooling for the LWC tests (needs Node 22.12+)
+│   ├── package.json, jest.config.js         Jest tooling for the LWC tests (Node range: `engines` in `package.json`)
 │   ├── .forceignore                         keeps `__tests__` and local editor/lint config out of deploys
 │   └── force-app/main/default/
 │       ├── objects/Return_Request__c/      External_Id__c (External ID, unique), Status__c, Order_Number__c, Amount__c
@@ -245,7 +245,7 @@ Tests: `cd service && ./mvnw verify` (Testcontainers integration tests need Dock
 | `WiringTest` | Boot 4 exposes the Jackson 3 `tools.jackson.databind.json.JsonMapper` bean; `batch-size > 100` rejected | — |
 | `ReturnStoreIT` (Testcontainers PostgreSQL 17) | full Spring context with Flyway, `ON CONFLICT DO NOTHING`, replay ID bytes round-trip unchanged, dead letter + replay in one call | Docker |
 | `ReturnRequestTriggerHandlerTest` (Apex) | 200 records in bulk → 200 events, defaults assigned | an org (CI job `apex`, needs secrets) |
-| `returnSyncStatus.test.js` (LWC Jest, 49 tests) | the record-page component's rendering and behaviour against local stubs | Node 22.12+; no org (CI job `lwc`; the job has not run on GitHub yet) |
+| `returnSyncStatus.test.js` (LWC Jest, 61 tests) | the record-page component's rendering and behaviour against local stubs | Node range in `salesforce/package.json` (`engines`); no org (CI job `lwc`) |
 | CI `docker-smoke` | image builds, compose stack starts, Flyway migrates real Postgres, service stays up (no org: reconnect loop), not OOM-killed under 384 MB, graceful stop | Docker |
 
 ## What a Java reviewer will check
