@@ -334,8 +334,15 @@ Verified:
 - One service instance per topic (strict order, one replay store); horizontal scaling is not designed.
 - Spring Boot support dates (4.0.x OSS until 2026-12-31, 4.1.x until 2027-07-31) come from a third-party review
   (AceMQ, compared with spring.io on 2026-10-22), not from spring.io directly.
-- The `returnSyncStatus` component is covered by Jest tests against local stubs; rendering in the org and the live
-  refresh have not been checked yet.
+- The `returnSyncStatus` component was checked live on desktop on 2026-11-11 (deploy `0Affj00000YnOdWCAV`): a record
+  still `New` when its page opened showed Waiting, then the decision on the same view under 1 s after its
+  `LastModifiedDate`; a decided record made no record request in 60 s; a record past the 60 s limit opened in
+  No decision yet, and "Check again" showed the decision once the service caught up. Each refresh fetches the
+  record for every wire on the page (the component, the header and the detail panel), so one refresh is two to
+  three `RecordUi` requests; none count against the API allocation.
+- A record read that fails with an HTTP error does not reach the component: Lightning retries it and
+  `notifyRecordUpdateAvailable` resolves, so the page ends in No decision yet rather than Error. Error shows only
+  when a refresh does not answer within 10 s or the platform reports the failure. Not checked on a phone.
 
 ## Load test results
 
