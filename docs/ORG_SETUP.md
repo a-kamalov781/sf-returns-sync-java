@@ -69,6 +69,9 @@ Expected: 2 tests pass, `ReturnRequestTriggerHandler` coverage above 75%. First 
 2/2 passed, trigger 100%, handler 90%, org-wide 91%.
 
 The deploy also brings a page layout and a **Return Requests** tab, so the record page shows the status.
+It also installs a Lightning record page (`Return_Request_Record_Page`, which carries the Return Sync status
+component) and makes it the org default on desktop and phone through two View overrides in the object's metadata;
+setting each override's `type` back to `Default` and removing its `content` undoes it (`destructiveChanges` cannot).
 
 **Give yourself access to the fields.** Deployed custom fields get no field-level security on any profile, so
 even the admin can't see or write them: `sf data create record` fails, anonymous Apex (`scripts/load-test.apex`)
