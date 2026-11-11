@@ -83,6 +83,21 @@ describe('c-return-sync-status', () => {
         jest.useRealTimers();
     });
 
+    // A record 55 s old whose first clock refresh never answers: No decision yet at 5 s, one call made.
+    async function hangPastDeadline() {
+        const pending = deferred();
+        notifyRecordUpdateAvailable.mockReturnValueOnce(pending.promise);
+        const element = mount();
+        getRecord.emit(newRecord(T0 - 55 * SECOND));
+        await flush();
+
+        await advanceSeconds(2);
+        expect(calls()).toBe(1);
+        await advanceSeconds(3);
+        expect(shown(element)).toEqual(['no-decision']);
+        return { element, pending };
+    }
+
     it('wires the three state fields as required and the name as optional', async () => {
         mount();
         await flush();
@@ -687,20 +702,6 @@ describe('c-return-sync-status', () => {
     });
 
     describe('Refresh settles after the deadline', () => {
-        async function hangPastDeadline() {
-            const pending = deferred();
-            notifyRecordUpdateAvailable.mockReturnValueOnce(pending.promise);
-            const element = mount();
-            getRecord.emit(newRecord(T0 - 55 * SECOND));
-            await flush();
-
-            await advanceSeconds(2);
-            expect(calls()).toBe(1);
-            await advanceSeconds(3);
-            expect(shown(element)).toEqual(['no-decision']);
-            return { element, pending };
-        }
-
         it('resolve run: stays in No decision yet with no further calls', async () => {
             const { element, pending } = await hangPastDeadline();
 
@@ -726,14 +727,7 @@ describe('c-return-sync-status', () => {
 
     describe('Stale refresh after a click', () => {
         it('ignores the old refresh rejecting after the click put the page back in Waiting', async () => {
-            const stale = deferred();
-            notifyRecordUpdateAvailable.mockReturnValueOnce(stale.promise);
-            const element = mount();
-            getRecord.emit(newRecord(T0 - 55 * SECOND));
-            await flush();
-            await advanceSeconds(6);
-            expect(shown(element)).toEqual(['no-decision']);
-            expect(calls()).toBe(1);
+            const { element, pending: stale } = await hangPastDeadline();
 
             await click(element);
             expect(calls()).toBe(2);
@@ -750,13 +744,7 @@ describe('c-return-sync-status', () => {
         });
 
         it('does not let the old refresh rejecting free the slot of a newer one still out', async () => {
-            const stale = deferred();
-            notifyRecordUpdateAvailable.mockReturnValueOnce(stale.promise);
-            const element = mount();
-            getRecord.emit(newRecord(T0 - 55 * SECOND));
-            await flush();
-            await advanceSeconds(6);
-            expect(shown(element)).toEqual(['no-decision']);
+            const { element, pending: stale } = await hangPastDeadline();
 
             await click(element);
             expect(calls()).toBe(2);
