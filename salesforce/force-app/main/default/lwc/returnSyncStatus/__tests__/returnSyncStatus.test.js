@@ -801,6 +801,27 @@ describe('c-return-sync-status', () => {
         });
     });
 
+    describe('Disconnect while the button refresh is out', () => {
+        it('ignores the late result and leaves no timer or call behind', async () => {
+            const pending = deferred();
+            notifyRecordUpdateAvailable.mockReturnValueOnce(pending.promise);
+            const element = mount();
+            getRecord.emit(newRecord(T0 - 90 * SECOND));
+            await flush();
+
+            await click(element);
+            expect(calls()).toBe(1);
+
+            document.body.removeChild(element);
+            pending.resolve();
+            await flush();
+            await advanceSeconds(20);
+
+            expect(calls()).toBe(1);
+            expect(jest.getTimerCount()).toBe(0);
+        });
+    });
+
     describe('Formatting', () => {
         it.each([
             [0, 'about 0 s'],
