@@ -47,7 +47,6 @@ async function flush() {
 async function advanceSeconds(n) {
     for (let i = 0; i < n; i++) {
         jest.advanceTimersByTime(SECOND);
-        // eslint-disable-next-line no-await-in-loop
         await flush();
     }
 }
