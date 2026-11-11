@@ -325,7 +325,7 @@ Verified:
   Integrations*, permission set licence `SalesforceAPIIntegrationPsl`, permission set `Return_Sync_Integration`)
   logs in with JWT and processed 1,000 of the load-test events; Salesforce shows it as *Last Modified By*.
 - **`apex` CI job** with the repository secrets: JWT login, `sf project deploy validate --test-level RunLocalTests`,
-  14/14 components, Apex tests 2/2 — green on every push to `main`.
+  18/18 components, Apex tests 2/2 — green on every push to `main`.
 
 **Caveats:**
 
