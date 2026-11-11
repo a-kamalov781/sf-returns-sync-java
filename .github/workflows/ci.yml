@@ -78,6 +78,22 @@ jobs:
           docker compose logs service | tail -5
           docker compose down -v
 
+  lwc:
+    # LWC Jest tests run against local stubs: no org and no secrets, so this also gates pull requests.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: salesforce
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: salesforce/package-lock.json
+      - run: npm ci
+      - run: npm run test:unit
+
   apex:
     # Secrets are not available to PRs from forks, and a fork has no org: validate on main only.
     if: github.event_name == 'push'

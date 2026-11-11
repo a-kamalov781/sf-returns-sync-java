@@ -1,0 +1,33 @@
+<template>
+    <lightning-card title={title} icon-name="standard:return_order">
+        <div class="slds-var-p-horizontal_medium">
+            <template lwc:if={isLoading}>
+                <p data-id="loading">{loadingText}</p>
+            </template>
+            <template lwc:if={isWaiting}>
+                <p data-id="waiting">{waitingText}</p>
+            </template>
+            <div aria-live="polite" data-id="live-region">
+                <template lwc:if={isError}>
+                    <p data-id="error" class="slds-text-color_error">{errorMessage}</p>
+                </template>
+                <template lwc:if={isDecided}>
+                    <p data-id="decided">{decidedText}</p>
+                </template>
+                <template lwc:if={isNoDecision}>
+                    <p data-id="no-decision">{noDecisionText}</p>
+                </template>
+            </div>
+            <template lwc:if={showButton}>
+                <div class="slds-var-m-top_small">
+                    <lightning-button
+                        data-id="check-again"
+                        label={checkAgainLabel}
+                        disabled={buttonDisabled}
+                        onclick={handleCheckAgain}
+                    ></lightning-button>
+                </div>
+            </template>
+        </div>
+    </lightning-card>
+</template>

@@ -1,0 +1,69 @@
+# Decision log: Return Sync status on the record page
+
+What the run is working from, and how each position was reached. The spec holds the current position; this file
+holds the history.
+
+## Seed
+
+The user asked for a next improvement to `sf-returns-sync-java` built with speccy, suggesting a Flow or an LWC
+component, delivered as a PR that carries the spec and this log. The request handed to speccy named the feature:
+an LWC "Return Sync status" (`returnSyncStatus`) on the `Return_Request__c` record page that shows "waiting for a
+decision" while `Status__c` is `New`, then the decision, who set it and how long it took (`CreatedDate` →
+`LastModifiedDate`), without a reload; stops refreshing once decided or after a timeout; handles a record that
+never gets a decision; Jest tests, FlexiPage placement, a live check in the Developer Edition, CI coverage.
+
+Treated as settled: the component type (LWC over Flow), the object, the four behaviours above, the time
+measure, and the deliverables. The interview asked nothing further.
+
+## Entries
+
+- **The second wait after "check again" counts from the click.** Proposed in the draft: the waiting limit counts
+  from the record's creation (Decision 4). Round-2 critique: on a record already past the limit, the button's
+  "wait again" would end at once, so the button could never wait. Decided: the first wait and the elapsed time
+  count from creation; a second wait lasts 60 s from the click. Origin: speccy, user-agreed (the user took all
+  round-2 findings).
+- **Error is no longer a dead end.** Proposed: a refresh that fails while waiting shows Error and stops the timer,
+  with no way back short of a reload (Decision 6, speccy, proposed). Round-3 critique: one failed request, most
+  likely on a phone, ends the wait for that page view. Decided: Error keeps stopping the timer and gains the same
+  "check again" button as No decision yet. Origin: speccy, user-agreed.
+- **The phone check stays, run by the user.** Round-3 critique: the build cannot open the Salesforce mobile app.
+  Decided: the criterion stays and the user runs it on their own phone after the deploy, rather than cutting it
+  as the second-user check was cut in round 1. Origin: User.
+- **The time measure is the user's.** Decision 2 was tagged speccy, user-agreed; the creation-to-last-modified
+  measure came with the request (see Seed). Retagged User; "who = last-modified user" stays speccy, user-agreed.
+- **Plan approved at review; three plan decisions ratified.** The one-clock design with per-request generation
+  numbers, the derived (not stored) state, and the page built from the highlights panel, the component and the
+  layout-driven detail panel were proposed by speccy and hardened over three plan-critique rounds (round 1:
+  recovery from Error and the blank pre-load state; round 2: stale requests overwriting the button's result;
+  round 3: nothing restarted the clock after an error or a reconnect). The user approved them as planned.
+  Origin: speccy, user-agreed.
+- **The live checks start the local service from the newest event.** Its stored replay position predated a
+  1,200-event load run, so a restart would have replayed that backlog against the daily event allowance. The
+  user chose clearing the position over draining it. Origin: User.
+- **"Stops when the user leaves the page" now reads "or at the latest at the limit".** The review found the
+  component stops only when Lightning disconnects it; a page kept alive for back navigation, or a background
+  console tab, keeps a waiting record refreshing until its 60 s limit (at most about 30 LDS requests, none
+  counted against the API allocation). Alternatives: stop on a page change through `CurrentPageReference`.
+  Decided: amend the spec's constraint to match the plan's accepted risk; no code change. Origin: User.
+- **A clock refresh that never answers ends in Error after 10 s.** Not in the plan, which bounded only the first
+  load and the button. Review round 2 found that a hung clock refresh would block every later refresh until the
+  limit and then blame the service ("may be down"). Decided: bound it at 10 s like the button. The live check
+  then showed it is load-bearing: a record read that hung never settled, and this bound is what turned it into
+  Error. Origin: speccy, alone.
+- **The button's own hung request also ends in Error.** Round 2 re-enabled the button silently after 10 s;
+  round 3 found that left No decision yet blaming the service. Decided: show Error with the button, as for the
+  clock refresh. Origin: speccy, alone.
+- **The tick counter is reset where the clock starts.** Round 1 moved the reset into `bumpGeneration` to give it
+  one owner; round 2 found that tied the cadence to an unrelated concern. Decided: reset in `startClock`.
+  Reversal of a round-1 fix. Origin: speccy, alone.
+- **An HTTP error on a refresh that Lightning swallows is not an Error.** Live check, not a review finding. With
+  the record read rewritten to fail (HTTP 404), Lightning retried the request and `notifyRecordUpdateAvailable`
+  resolved, so the page reached No decision yet instead of Error. The spec's Error state ("a refresh fails while
+  waiting") held only when the request hangs or the platform reports the failure. Alternatives: amend the spec,
+  or detect it by comparing the record's `lastModifiedDate`/`weakEtag` before and after a refresh (which cannot
+  tell a silent failure from a still-`New` record that has not changed). Decided: amend the spec; "fails" now
+  means the platform reports it or the refresh does not answer within 10 s. No code change. Origin: User.
+- **The phone check was skipped.** Round-3 critique had kept it as a check the user runs after the deploy (see
+  above). After the deploy, the user chose to skip it. The criterion stays in the spec, marked not run; the
+  phone page rests on the Small View override and the Small form factor in the component's metadata, neither
+  seen in the mobile app. Origin: User.

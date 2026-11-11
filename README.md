@@ -31,9 +31,9 @@ the integration user — the service was running in a Docker container on GitHub
 - **Proof, on a live Salesforce Developer Edition.** 1,200 events under load: 1,200 statuses, **0 duplicates,
   0 errors**; every record of a burst of 100 has its status within **2–6 s** (p95); the Docker container peaked
   at **183 MiB of its 384 MiB** limit during an hour of load ([Load test results](#load-test-results)). CI runs
-  the tests, starts the Docker image and validates the Apex code against the org on every push.
+  the tests (Java and LWC Jest), starts the Docker image and validates the Apex code against the org on every push.
 - **Stack.** Java 25 · Spring Boot 4.1 · gRPC + Avro (Salesforce Pub/Sub API) · PostgreSQL + Flyway · Docker ·
-  GitHub Actions · Apex / SFDX · JUnit 5, Mockito, Testcontainers, WireMock.
+  GitHub Actions · Apex / SFDX · Lightning Web Components · JUnit 5, Mockito, Testcontainers, WireMock, Jest.
 
 Try it yourself: [docs/ORG_SETUP.md](docs/ORG_SETUP.md) (free Developer Edition, about an hour). What was checked
 and how: [What is verified and what is not](#what-is-verified-and-what-is-not).
@@ -70,11 +70,15 @@ flowchart LR
 ```
 sf-returns-sync-java/
 ├── salesforce/                      SFDX project
+│   ├── package.json, jest.config.js         Jest tooling for the LWC tests (Node range: `engines` in `package.json`)
+│   ├── .forceignore                         keeps `__tests__` and local editor/lint config out of deploys
 │   └── force-app/main/default/
 │       ├── objects/Return_Request__c/      External_Id__c (External ID, unique), Status__c, Order_Number__c, Amount__c
 │       ├── objects/Return_Requested__e/    HighVolume, PublishAfterCommit
 │       ├── triggers/ReturnRequestTrigger   thin trigger
 │       ├── classes/ReturnRequestTriggerHandler(+Test)   bulk test on 200 records
+│       ├── lwc/returnSyncStatus(+__tests__)             record-page component showing the sync status; Jest tests
+│       ├── flexipages/Return_Request_Record_Page        record page that places the component
 │       └── permissionsets/   Return_Sync_Integration (service user), Return_Request_Manager (people)
 ├── service/                         Maven, Spring Boot 4.1, Java 25
 │   ├── src/main/proto/pubsub_api.proto      copy from forcedotcom/pub-sub-api (CC0), byte-identical
@@ -88,7 +92,7 @@ sf-returns-sync-java/
 ├── docs/ORG_SETUP.md, docs/LOAD_TEST.md   live-org setup, first-run checklist, load test
 ├── scripts/                         load-test.sh + load-test.apex, load-test-cleanup.apex, measure-memory.sh
 ├── docker-compose.yml               postgres:17-alpine + service (mem_limit 384m)
-└── .github/workflows/ci.yml         mvn verify, docker smoke run, Apex validation
+└── .github/workflows/ci.yml         mvn verify, docker smoke run, LWC Jest tests, Apex validation
 ```
 
 No `interface` + `Impl`, no mappers, no DTO layers: nine production classes in five packages.
@@ -211,7 +215,8 @@ Reference*, v68.0 (Winter '27):
 
 ## Run locally
 
-Prerequisites: a Developer Edition org, Salesforce CLI (`sf`), Docker, JDK 25 (only for running tests outside Docker).
+Prerequisites: a Developer Edition org, Salesforce CLI (`sf`), Docker, JDK 25 (only for running tests outside Docker), Node in the range of `engines` in `salesforce/package.json` (only for
+the LWC tests).
 The short version is below; [docs/ORG_SETUP.md](docs/ORG_SETUP.md) has every step, the key/certificate commands,
 a JWT login check with the CLI, a first-run checklist and troubleshooting.
 
@@ -229,6 +234,7 @@ a JWT login check with the CLI, a first-run checklist and troubleshooting.
 6. Create a `Return_Request__c` record and watch its `Status__c` change.
 
 Tests: `cd service && ./mvnw verify` (Testcontainers integration tests need Docker and are skipped without it).
+LWC tests: `cd salesforce && npm ci && npm run test:unit` (no org needed).
 
 ## Tests
 
@@ -241,6 +247,7 @@ Tests: `cd service && ./mvnw verify` (Testcontainers integration tests need Dock
 | `WiringTest` | Boot 4 exposes the Jackson 3 `tools.jackson.databind.json.JsonMapper` bean; `batch-size > 100` rejected | — |
 | `ReturnStoreIT` (Testcontainers PostgreSQL 17) | full Spring context with Flyway, `ON CONFLICT DO NOTHING`, replay ID bytes round-trip unchanged, dead letter + replay in one call | Docker |
 | `ReturnRequestTriggerHandlerTest` (Apex) | 200 records in bulk → 200 events, defaults assigned | an org (CI job `apex`, needs secrets) |
+| `returnSyncStatus.test.js` (LWC Jest) | the record-page component's rendering and behaviour against local stubs | Node range in `salesforce/package.json` (`engines`); no org (CI job `lwc`) |
 | CI `docker-smoke` | image builds, compose stack starts, Flyway migrates real Postgres, service stays up (no org: reconnect loop), not OOM-killed under 384 MB, graceful stop | Docker |
 
 ## What a Java reviewer will check
@@ -320,13 +327,23 @@ Verified:
   Integrations*, permission set licence `SalesforceAPIIntegrationPsl`, permission set `Return_Sync_Integration`)
   logs in with JWT and processed 1,000 of the load-test events; Salesforce shows it as *Last Modified By*.
 - **`apex` CI job** with the repository secrets: JWT login, `sf project deploy validate --test-level RunLocalTests`,
-  14/14 components, Apex tests 2/2 — green on every push to `main`.
+  18/18 components, Apex tests 2/2 — green on every push to `main`.
 
 **Caveats:**
 
 - One service instance per topic (strict order, one replay store); horizontal scaling is not designed.
 - Spring Boot support dates (4.0.x OSS until 2026-12-31, 4.1.x until 2027-07-31) come from a third-party review
   (AceMQ, compared with spring.io on 2026-10-22), not from spring.io directly.
+- The `returnSyncStatus` component was checked live on desktop on 2026-11-11 (deploy `0Affj00000YnOdWCAV`): a record
+  still `New` when its page opened showed Waiting, then the decision on the same view under 1 s after its
+  `LastModifiedDate`; a decided record made no record request in 60 s; a record past the 60 s limit opened in
+  No decision yet, and "Check again" showed the decision once the service caught up. Each refresh fetches the
+  record for every wire on the page (the component, the header and the detail panel), so one refresh is two to
+  three `RecordUi` requests; none count against the API allocation. The page is also the default in the
+  Salesforce mobile app, but it was not opened on a phone.
+- A record read that fails with an HTTP error does not reach the component: Lightning retries it and
+  `notifyRecordUpdateAvailable` resolves, so the page ends in No decision yet rather than Error. Error shows only
+  when a refresh does not answer within 10 s or the platform reports the failure. Not checked on a phone.
 
 ## Load test results
 

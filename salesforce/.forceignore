@@ -1,0 +1,6 @@
+# The server compiles a bundle's __tests__ folder as component code and rejects real Jest tests (LWC1503).
+**/__tests__/**
+# jsconfig.json is created by the Salesforce Extensions for VS Code; it is editor config and must not deploy.
+**/jsconfig.json
+# .eslintrc.json is shipped by `sf project generate` templates; it is lint config and must not deploy.
+**/.eslintrc.json
