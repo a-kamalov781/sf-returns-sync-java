@@ -5,7 +5,7 @@
 ## Goal
 
 A user who creates a `Return_Request__c` record cannot see the Java service's decision without reloading the
-page: the service writes `Status__c` (`New` → `Approved`, `Rejected` or `Manual_Review`) about 1–3 s after the
+page. The service writes `Status__c` (`New` → `Approved`, `Rejected` or `Manual_Review`) about 1–3 s after the
 insert, through the REST API, as the integration user, and the open record page does not notice. This spec
 produces a Lightning Web Component on the record page that shows "waiting for a decision" while the status is
 `New` and the decision as soon as it lands, without a reload, together with who made it and how long it took.
@@ -24,9 +24,9 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
   - **Waiting**: status is `New`; says the decision is pending and shows the time since creation.
   - **Decided**: status is `Approved`, `Rejected` or `Manual_Review`; shows the decision, the user who last
     modified the record, and the time from creation to last modification.
-  - **No decision yet**: the status is still `New` more than the waiting limit after creation, including when
-    the record is opened that late; says the sync service may be down
-    and offers a button that checks once more and, if still `New`, waits again for one more limit.
+  - **No decision yet**: the status is still `New` more than 60 s after creation (the waiting limit), including
+    when the record is opened that late; says the sync service may be down and offers a button that checks once
+    more and, if still `New`, waits again for one more limit.
   - **Error**: the record cannot be read, or a refresh fails while waiting; shows the platform's error message
     and stops the timer.
 - A Lightning record page for `Return_Request__c` with the component and the record's fields. It is the org
@@ -47,16 +47,15 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
 - Stops all background requests once the status leaves `New`, when the limit is reached, on an error, and when
   the user leaves the page.
 - Background refreshes do not count against the org's daily API request allocation.
-- Labels the time as "about N s" when it is under a minute: `CreatedDate` and `LastModifiedDate` have one
-  second resolution, so a sub-second answer reads as 0–1 s.
+- Labels the time as "about N s" when it is under a minute. `CreatedDate` and `LastModifiedDate` have one second
+  resolution, so a sub-second answer reads as 0–1 s.
 
 ## Completion criteria
 
 - [ ] In the live Developer Edition, a record created from the UI shows "waiting" and then the decision on the
       same page view, without a reload, within 5 s of the record's `LastModifiedDate`.
-- [ ] A record that is opened after its decision shows the decided state immediately and makes no background
-      requests.
-- [ ] A record that is still `New` more than 60 s after creation opens in No decision yet.
+- [ ] A record opened after its decision shows the decided state immediately and makes no background requests.
+- [ ] A record still `New` more than 60 s after creation opens in No decision yet.
 - [ ] With the Java service stopped, a new record shows "No decision yet" once the limit passes, and the button
       shows the decision after the service is started again.
 - [ ] The component's unit tests run without an org, pass locally and in the CI workflow, and cover all four
@@ -71,19 +70,18 @@ produces a Lightning Web Component on the record page that shows "waiting for a 
   **Why**: the wait is about 1–3 s. A Change Data Capture subscription delivers every change to the object to
   every open page, and each delivery counts against the Developer Edition's 10,000 a day event allowance,
   shared with the Java service. The publish option is out under Scope boundaries (no change to the service or
-  trigger).
-  Salesforce's LWC guidance advises against refreshing in a timer loop because it loads the server; that cost
-  is bounded here by the 60 s limit and the stop conditions, at most about 30 refreshes per record view, and
-  those refreshes do not count against the daily API allowance.
+  trigger). Salesforce's LWC guidance advises against refreshing in a timer loop because it loads the server;
+  that cost is bounded here by the 60 s limit and the stop conditions, at most about 30 refreshes per record
+  view, and those refreshes do not count against the daily API allowance.
   **Origin**: speccy, user-agreed.
 - **Decision**: measure "how long it took" as last-modified time minus creation time, and "who" as the
   last-modified user.
   **Alternatives**: add a decision timestamp and decider field written by the Java service; read field
   history.
-  **Why**: last-modified needs no extra read and no extra metadata, at the price of the edit-after-decision
-  case under Assumptions, and the status is read-only on the layout, so the last modification is the decision
-  in normal use. Field history is exact but needs a second data source beside the record read, and the
-  service-written fields need a change to the service.
+  **Why**: last-modified needs no extra read and no extra metadata. The status is read-only on the layout, so
+  the last modification is the decision in normal use; the edit-after-decision case is under Assumptions. Field
+  history is exact but needs a second data source beside the record read, and the service-written fields need a
+  change to the service.
   **Origin**: speccy, user-agreed.
 - **Decision**: a waiting limit of 60 s with a manual "check again".
   **Alternatives**: keep waiting until the user leaves; no limit with a slower interval.
