@@ -328,6 +328,13 @@ Verified:
   logs in with JWT and processed 1,000 of the load-test events; Salesforce shows it as *Last Modified By*.
 - **`apex` CI job** with the repository secrets: JWT login, `sf project deploy validate --test-level RunLocalTests`,
   18/18 components, Apex tests 2/2 — green on every push to `main`.
+- **Org metadata matches the repository** (2026-11-12): the layout, both permission sets, the record page and
+  the tab, retrieved from `returns-dev`, are byte-identical to the files here, except one XML comment in
+  `Return_Sync_Integration` (Salesforce does not store comments). A deploy of the layout and permission sets
+  reports `Unchanged` (`0Affj00000YrSIkCAN`). The earlier `Changed` on every deploy was Salesforce's own
+  normalisation, not a difference in access: it sorts field permissions, adds `viewAllFields=false` and an empty
+  Custom Links layout section, and drops comments. The repository files are now stored in that form, so a
+  retrieve-and-diff shows real drift only.
 
 **Caveats:**
 
@@ -349,6 +356,20 @@ Verified:
 - A record read that fails with an HTTP error does not reach the component: Lightning retries it and
   `notifyRecordUpdateAvailable` resolves, so the page ends in No decision yet rather than Error. Error shows only
   when a refresh does not answer within 10 s or the platform reports the failure. Not checked on a phone.
+
+## Known limitations
+
+Left as they are; the project is closed with them.
+
+- **Not checked on a phone.** The record page is the org default in the Salesforce mobile app (Small View
+  override, `Small` form factor in the component's metadata), but nobody opened it there. Whether the phone shows
+  the component, the fields and the header is unverified.
+- **`sf org open` fails** with `403 Invalid_Scope` for the `returns-dev` alias (CLI 2.157.8, checked
+  2026-11-11): the CLI's stored token lacks the web scope. Logging in again with `sf org login web` would fix it;
+  meanwhile open the org through the browser.
+- **Empty right column on the desktop record page.** The page uses `flexipage:recordHomeTemplateDesktop`, the
+  template that validated with this layout, and leaves its sidebar region empty. A single-column record template
+  would remove the gap; it was not tried.
 
 ## Load test results
 
